@@ -55,7 +55,7 @@ void sendTlm() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(500000);
   radio.begin();     
   radio.setChannel(108);
   radio.setDataRate(RF24_250KBPS);
@@ -72,6 +72,7 @@ void loop() {
   if (radio.available()) {
 
     byte payloadSize = radio.getPayloadSize(); // Ottieni la dimensione del payload
+
     byte payload[payloadSize]; // Crea un array di byte per memorizzare il payload
     radio.read(&payload, payloadSize); // Leggi il payload
 
