@@ -115,7 +115,6 @@ void powerUpdate(){
 
 void setup() {
   Serial2.begin(GPS_BAUDRATE);
-  Serial.begin(115200);
   radioInit();
 
   lastTX = 0;
