@@ -26,7 +26,11 @@ ser = serial.Serial('COM8', 500000)
 data = [0]*14
 data_label = [""]*14
 nSat, lat, lon, alt, speed, cog, day, month, year, hour, minute, second, voltage, current = range(14)
-data_dec = [0,6,6,2,2,0,0,0,0,0,0,0,2,2]
+data_dec = [0,6,6,2,2,0,0,0,0,0,0,0,4,4]
+adc_smoothing_factor = 0.05
+adc_cal_voltage=[0.996139854, 0.137942677]
+adc_cal_current=[20.13434425, 2.687814483]
+
 data_label[nSat] = "Satelliti"
 data_label[lat] = "Latitudine"
 data_label[lon] = "Longitudine"
@@ -57,6 +61,10 @@ plot_data_ID = []
 
 # I pacchetti sono interpretati dalla variabile ID (già decodificata) in poi. Per questo alla dimensione del pacchetto
 # originale si sottrae 4 (4 byte dell'integer ID)
+
+def adc_linear_correction(reading, regr):
+    return reading*regr[0] + regr[1]
+    
 def decode_packet(packet_ID):
     
     if packet_ID == gps_loc[ID]:
@@ -75,7 +83,9 @@ def decode_packet(packet_ID):
 
         packet_data = ser.read(power[size] - 4)
         s = struct.unpack('<ff', packet_data)
-        data[voltage], data[current] = s
+        data[voltage] = data[voltage]*(1-adc_smoothing_factor) + adc_linear_correction(s[0], adc_cal_voltage)*11*adc_smoothing_factor
+        #data[current] = data[current]*(1-adc_smoothing_factor) + (adc_linear_correction(s[1])-0.33)*38.8788*adc_smoothing_factor
+        data[current] = data[current]*(1-adc_smoothing_factor) + adc_linear_correction(s[1], adc_cal_current)*adc_smoothing_factor
 
 def update_data():
     while True:

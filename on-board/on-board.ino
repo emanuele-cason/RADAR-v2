@@ -15,8 +15,8 @@ RF24 radio(4, 5);              // Pin modulo tx/rx CE, CSN
 
 #define GPS_BAUDRATE 9600
 
-const int VOLTAGE_PIN = 34;
-const int CURRENT_PIN = 35;
+const int VOLTAGE_PIN = 35;
+const int CURRENT_PIN = 34;
 
 const byte GS_ADDRESS[5] = {'R', 'x', 'A', 'A', 'A'};
 const int RADIO_CH = 108;
@@ -109,8 +109,8 @@ void gpsUpdate(){
 }
 
 void powerUpdate(){
-  powerPacket.current = (analogRead(CURRENT_PIN)*(3.3/4096)-0.33)*38.8788;
-  powerPacket.voltage = analogRead(VOLTAGE_PIN)*(3.3/4095.0);
+  powerPacket.current = analogRead(CURRENT_PIN)*(3.3/4096.0);
+  powerPacket.voltage = analogRead(VOLTAGE_PIN)*(3.3/4096.0);
 }
 
 void setup() {
