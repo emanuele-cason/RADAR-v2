@@ -4,7 +4,7 @@ import struct
 import threading
 
 import dearpygui.dearpygui as dpg
-from datetime import datetime
+import time
 
 import pyautogui
 
@@ -22,7 +22,7 @@ power = [3, 12]
 ser = serial.Serial('COM8', 500000)
 
 # Dati ricevuti via radio
-data = [None]*14
+data = [0]*14
 data_label = [""]*14
 nSat, lat, lon, alt, speed, cog, day, month, year, hour, minute, second, voltage, current = range(14)
 data_dec = [0,6,6,2,2,0,0,0,0,0,0,0,2,2]
@@ -80,8 +80,6 @@ def update_data():
 
 threading.Thread(target=update_data).start()
 
-input()
-
 dpg.create_context()
 dpg.create_viewport(title='LIFTUP Data Monitor', width=600, height=600)
 
@@ -108,20 +106,30 @@ def plot_data_selected(sender, app_data, user_data):
 
     if sender == "PL1-C":
         plot1_data_ID = data_label.index(app_data)
-        plot_data_x = []
-        plot_data_y = []
+        plot1_data_x = []
+        plot1_data_y = []
+        dpg.delete_item("PL1-YA-serie")
+        dpg.add_line_series(plot1_data_x, plot1_data_y, label=data_label[plot1_data_ID], parent="PL1-YA", tag="PL1-YA-serie")
+        dpg.configure_item("PL1-YA", label=data_label[plot1_data_ID])
+        dpg.bind_item_theme("PL1-YA-serie", "PL-T")
+    
+with dpg.window(label="Real-time plot #1", tag="PL1-W", pos=[screen_width/4, 0], height=screen_height/2, width=screen_width*0.75):
 
-with dpg.window(label="Real time plot 1", pos=[screen_width/4, 0], height=screen_height/2.7, width=screen_width*0.75):
+    with dpg.theme(tag="PL-T"):
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 3, category=dpg.mvThemeCat_Plots)
 
-    dpg.add_combo(data_label, height_mode=dpg.mvComboHeight_Small, tag="PL1-C", default_value=data_label[plot1_data_ID], callback=plot_data_selected)
+    with dpg.group(horizontal=True):
+        dpg.add_combo(data_label, height_mode=dpg.mvComboHeight_Small, tag="PL1-C", default_value=data_label[plot1_data_ID], callback=plot_data_selected)
+        dpg.add_checkbox(label="Auto-track", tag="PL1-AT")
 
-    with dpg.plot(label="Plot 1", height=screen_height/3.50, width=screen_width*0.74):
+    with dpg.plot(label="PL1", height=screen_height/2.5, width=screen_width*0.74):
 
-        dpg.add_plot_axis(dpg.mvXAxis, label="Time [s]")
-        dpg.add_plot_axis(dpg.mvYAxis, label="Seconds", tag="y_axis")
+        dpg.add_plot_axis(dpg.mvXAxis, label=" ", tag="PL1-XA", time=True)
+        dpg.add_plot_axis(dpg.mvYAxis, label=data_label[plot1_data_ID], tag="PL1-YA")
 
-        dpg.add_line_series(plot1_data_x, plot1_data_y, label=data_label[plot1_data_ID], parent="y_axis", tag="series_tag")
-
+        dpg.add_line_series(plot1_data_x, plot1_data_y, label=data_label[plot1_data_ID], parent="PL1-YA", tag="PL1-YA-serie")
+        dpg.bind_item_theme("PL1-YA-serie", "PL-T")
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
@@ -131,13 +139,14 @@ while dpg.is_dearpygui_running():
     for i in range(len(data)):
         dpg.set_value(f"DT{i}", f"{data[i]:.{data_dec[i]}f}")
 
-    tm = datetime.now().time()
-
     plot1_data_y.append(data[plot1_data_ID])
-    plot1_data_x.append(len(plot1_data_y)/100)
+    plot1_data_x.append(time.time())
+
+    if dpg.get_value("PL1-AT"):
+        dpg.fit_axis_data("PL1-XA")
+        dpg.fit_axis_data("PL1-YA")
     
-    dpg.set_value('series_tag', [plot1_data_x, plot1_data_y])
-    dpg.set_axis_limits_auto("y_axis")
+    dpg.set_value('PL1-YA-serie', [plot1_data_x, plot1_data_y])
                     
     dpg.render_dearpygui_frame()
 
