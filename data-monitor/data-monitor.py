@@ -51,9 +51,9 @@ marker_colors = [
     [171,71,188, 255],  # Viola
 ]
 
-plot1_data_y = []
-plot1_data_x = []
-plot1_data_ID = 11
+plot_data_y = []
+plot_data_x = []
+plot_data_ID = []
 
 # I pacchetti sono interpretati dalla variabile ID (già decodificata) in poi. Per questo alla dimensione del pacchetto
 # originale si sottrae 4 (4 byte dell'integer ID)
@@ -110,45 +110,64 @@ with dpg.window(label="Data table", height=screen_height, width=screen_width/4):
                 dpg.bind_item_font(data_text, font1)
 
 def plot_data_selected(sender, app_data, user_data):
-    global plot1_data_x, plot1_data_y, plot1_data_ID
+    global plot_data_x, plot_data_y, plot_data_ID
 
-    if sender == "PL1-C":
-        plot1_data_ID = data_label.index(app_data)
-        plot1_data_x = []
-        plot1_data_y = []
-        dpg.delete_item("PL1-YA-serie")
-        dpg.add_line_series(plot1_data_x, plot1_data_y, label=data_label[plot1_data_ID], parent="PL1-YA", tag="PL1-YA-serie")
-        dpg.configure_item("PL1-YA", label=data_label[plot1_data_ID])
-        dpg.bind_item_theme("PL1-YA-serie", "PL-T")
+    if sender == f"PL{user_data}-C":
+        plot_data_ID[user_data] = data_label.index(app_data)
+        plot_data_x[user_data] = []
+        plot_data_y[user_data] = []
+        dpg.delete_item(f"PL{user_data}-YA-serie")
+        dpg.add_line_series(plot_data_x[user_data], plot_data_y[user_data], label=data_label[plot_data_ID[user_data]], parent=f"PL{user_data}-YA", tag=f"PL{user_data}-YA-serie")
+        dpg.configure_item(f"PL{user_data}-YA", label=data_label[plot_data_ID[user_data]])
+        dpg.bind_item_theme(f"PL{user_data}-YA-serie", "PL-T")
 
-def plot_add_marker(sender, app_data, user_data):
+def plot_button_callback(sender, app_data, user_data):
     global marker_i
-    marker_i +=1
-    
-    if sender == "PL1-M":
-        dpg.add_plot_annotation(parent="PL1", label=f"M{marker_i}", default_value=(plot1_data_x[-1], plot1_data_y[-1]), color=marker_colors[random.randint(0, len(marker_colors)-1)])
-    
-    
-with dpg.window(label="Real time plot #1", pos=[screen_width/4, 0], height=screen_height/2, width=screen_width*0.75):
 
-    with dpg.theme(tag="PL-T"):
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 3, category=dpg.mvThemeCat_Plots)
+    if sender == f"PL{user_data}-S":
+        for plot_ID in range(len(plot_data_x)):
+            if not plot_ID == user_data:
+                dpg.set_value(f"PL{plot_ID}-B", dpg.get_value(f"PL{user_data}-B"))
+    
+    if sender.startswith("PL") and sender.endswith("-M"):
 
-    with dpg.group(horizontal=True):
-        dpg.add_combo(data_label, width=200, height_mode=dpg.mvComboHeight_Small, tag="PL1-C", default_value=data_label[plot1_data_ID], callback=plot_data_selected)
-        dpg.add_radio_button(items=("Manuale","Completo", "Insegui"), horizontal=True, default_value="Completo", tag="PL1-RB")
-        dpg.add_slider_int(label="Buffer", tag="PL1-B", default_value=1000, min_value=100, max_value=5000, width=200)
-        dpg.add_button(tag="PL1-M", label="Marker", callback=plot_add_marker)
-        marker_i = 0
+        marker_i +=1
         
-    with dpg.plot(tag="PL1", height=screen_height/2.5, width=screen_width*0.74):
+        for plot_ID in range(len(plot_data_x)):
+            dpg.add_plot_annotation(parent=f"PL{plot_ID}", label=f"M{marker_i}", default_value=(plot_data_x[plot_ID][-1], plot_data_y[plot_ID][-1]), color=marker_colors[random.randint(0, len(marker_colors)-1)])
 
-        dpg.add_plot_axis(dpg.mvXAxis, label=" ", tag="PL1-XA", time=True)
-        dpg.add_plot_axis(dpg.mvYAxis, label=data_label[plot1_data_ID], tag="PL1-YA")
+with dpg.theme(tag="PL-T"):
+    with dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 3, category=dpg.mvThemeCat_Plots)
 
-        dpg.add_line_series(plot1_data_x, plot1_data_y, label=data_label[plot1_data_ID], parent="PL1-YA", tag="PL1-YA-serie")
-        dpg.bind_item_theme("PL1-YA-serie", "PL-T")
+def plot_create(plot_ID):
+    global plot_data_x, plot_data_y, plot_data_ID
+
+    plot_data_x.append([])
+    plot_data_y.append([])
+    plot_data_ID.append(11)
+    
+    with dpg.window(label=f"Real time plot #{plot_ID}", pos=[screen_width/4, plot_ID*screen_height/2], height=screen_height/2, width=screen_width*0.75):
+
+        with dpg.group(horizontal=True):
+            dpg.add_combo(data_label, width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot_ID}-C", default_value=data_label[plot_data_ID[plot_ID]], callback=plot_data_selected, user_data=plot_ID)
+            dpg.add_radio_button(items=("Manuale","Completo", "Insegui"), horizontal=True, default_value="Completo", tag=f"PL{plot_ID}-RB")
+            dpg.add_slider_int(label="Buffer", tag=f"PL{plot_ID}-B", default_value=1000, min_value=100, max_value=5000, width=200)
+            dpg.add_button(tag=f"PL{plot_ID}-S", label="Sync", callback=plot_button_callback, user_data=plot_ID)
+            dpg.add_button(tag=f"PL{plot_ID}-M", label="Marker", callback=plot_button_callback, user_data=plot_ID)
+            global marker_i
+            marker_i = 0
+            
+        with dpg.plot(tag=f"PL{plot_ID}", height=screen_height/2.5, width=screen_width*0.74):
+
+            dpg.add_plot_axis(dpg.mvXAxis, label=" ", tag=f"PL{plot_ID}-XA", time=True)
+            dpg.add_plot_axis(dpg.mvYAxis, label=data_label[plot_data_ID[plot_ID]], tag=f"PL{plot_ID}-YA")
+
+            dpg.add_line_series(plot_data_x[plot_ID], plot_data_y[plot_ID], label=data_label[plot_data_ID[plot_ID]], parent=f"PL{plot_ID}-YA", tag=f"PL{plot_ID}-YA-serie")
+            dpg.bind_item_theme(f"PL{plot_ID}-YA-serie", "PL-T")
+
+plot_create(0)
+plot_create(1)
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
@@ -158,25 +177,27 @@ while dpg.is_dearpygui_running():
     for i in range(len(data)):
         dpg.set_value(f"DT{i}", f"{data[i]:.{data_dec[i]}f}")
 
-    plot1_data_y.append(data[plot1_data_ID])
-    plot1_data_x.append(time.time())
+    for plot_ID in range(len(plot_data_ID)):
 
-    if dpg.get_value("PL1-RB") == "Manuale":
-        dpg.set_axis_limits_auto("PL1-YA")
+        plot_data_y[plot_ID].append(data[plot_data_ID[plot_ID]])
+        plot_data_x[plot_ID].append(time.time())
 
-    if dpg.get_value("PL1-RB") == "Insegui":
-        if len(plot1_data_x) > dpg.get_value("PL1-B"):
-            dpg.set_value('PL1-YA-serie', [plot1_data_x[-dpg.get_value("PL1-B"):], plot1_data_y[-dpg.get_value("PL1-B"):]])
-        else:
-            dpg.set_value('PL1-YA-serie', [plot1_data_x, plot1_data_y])
+        if dpg.get_value(f"PL{plot_ID}-RB") == "Manuale":
+            dpg.set_axis_limits_auto(f"PL{plot_ID}-YA")
 
-    else:    
-        dpg.set_value('PL1-YA-serie', [plot1_data_x, plot1_data_y])
+        if dpg.get_value(f"PL{plot_ID}-RB") == "Insegui":
+            if len(plot_data_x[plot_ID]) > dpg.get_value(f"PL{plot_ID}-B"):
+                dpg.set_value(f"PL{plot_ID}-YA-serie", [plot_data_x[plot_ID][-dpg.get_value(f"PL{plot_ID}-B"):], plot_data_y[plot_ID][-dpg.get_value(f"PL{plot_ID}-B"):]])
+            else:
+                dpg.set_value(f"PL{plot_ID}-YA-serie", [plot_data_x[plot_ID], plot_data_y[plot_ID]])
 
-    if dpg.get_value("PL1-RB") == "Completo" or dpg.get_value("PL1-RB") == "Insegui":
-        dpg.fit_axis_data("PL1-XA")
-        dpg.set_axis_limits("PL1-YA", min(plot1_data_y)-abs(0.1*max(plot1_data_y)), max(plot1_data_y)+abs(0.1*max(plot1_data_y)))
-                    
+        else:    
+            dpg.set_value(f"PL{plot_ID}-YA-serie", [plot_data_x[plot_ID], plot_data_y[plot_ID]])
+
+        if dpg.get_value(f"PL{plot_ID}-RB") == "Completo" or dpg.get_value(f"PL{plot_ID}-RB") == "Insegui":
+            dpg.fit_axis_data(f"PL{plot_ID}-XA")
+            dpg.set_axis_limits(f"PL{plot_ID}-YA", min(plot_data_y[plot_ID])-abs(0.1*max(plot_data_y[plot_ID])), max(plot_data_y[plot_ID])+abs(0.1*max(plot_data_y[plot_ID])))
+                        
     dpg.render_dearpygui_frame()
 
 dpg.destroy_context()
