@@ -42,7 +42,7 @@ data_label[voltage] = "Tensione [V]"
 data_label[current] = "Corrente [A]"
 
 # Dati dei plot
-plot1_buffer_size = 100
+plot1_buffer_size = 1000
 plot1_data_y = []
 plot1_data_x = []
 plot1_data_ID = 11
@@ -113,7 +113,7 @@ def plot_data_selected(sender, app_data, user_data):
         dpg.configure_item("PL1-YA", label=data_label[plot1_data_ID])
         dpg.bind_item_theme("PL1-YA-serie", "PL-T")
     
-with dpg.window(label="Real-time plot #1", tag="PL1-W", pos=[screen_width/4, 0], height=screen_height/2, width=screen_width*0.75):
+with dpg.window(label="Real time plot #1", pos=[screen_width/4, 0], height=screen_height/2, width=screen_width*0.75):
 
     with dpg.theme(tag="PL-T"):
         with dpg.theme_component(dpg.mvAll):
@@ -121,7 +121,8 @@ with dpg.window(label="Real-time plot #1", tag="PL1-W", pos=[screen_width/4, 0],
 
     with dpg.group(horizontal=True):
         dpg.add_combo(data_label, height_mode=dpg.mvComboHeight_Small, tag="PL1-C", default_value=data_label[plot1_data_ID], callback=plot_data_selected)
-        dpg.add_checkbox(label="Auto-track", tag="PL1-AT")
+        dpg.add_checkbox(label="Auto-track", tag="PL1-AT", default_value=True)
+        dpg.add_checkbox(label="Follow-last", tag="PL1-FL", default_value=False)
 
     with dpg.plot(label="PL1", height=screen_height/2.5, width=screen_width*0.74):
 
@@ -142,11 +143,18 @@ while dpg.is_dearpygui_running():
     plot1_data_y.append(data[plot1_data_ID])
     plot1_data_x.append(time.time())
 
-    if dpg.get_value("PL1-AT"):
+    if dpg.get_value("PL1-FL"):
+        if len(plot1_data_x) > plot1_buffer_size:
+            dpg.set_value('PL1-YA-serie', [plot1_data_x[-plot1_buffer_size:], plot1_data_y[-plot1_buffer_size:]])
+        else:
+            dpg.set_value('PL1-YA-serie', [plot1_data_x, plot1_data_y])
+
+    else:    
+        dpg.set_value('PL1-YA-serie', [plot1_data_x, plot1_data_y])
+
+    if dpg.get_value("PL1-AT") or dpg.get_value("PL1-FL"):
         dpg.fit_axis_data("PL1-XA")
         dpg.fit_axis_data("PL1-YA")
-    
-    dpg.set_value('PL1-YA-serie', [plot1_data_x, plot1_data_y])
                     
     dpg.render_dearpygui_frame()
 
