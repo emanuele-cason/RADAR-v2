@@ -3,7 +3,10 @@ import struct
 
 import threading
 import time
+from datetime import datetime
 import random
+import os
+import csv
 
 import dearpygui.dearpygui as dpg
 import pyautogui
@@ -30,6 +33,7 @@ data_dec = [0,6,6,2,2,0,0,0,0,0,0,0,4,4]
 adc_smoothing_factor = 0.05
 adc_cal_voltage=[0.996139854, 0.137942677]
 adc_cal_current=[20.13434425, 2.687814483]
+current_threshold_filter = 4 # Corrente sotto la quale il dato di corrente viene considerato nullo
 
 data_label[nSat] = "Satelliti"
 data_label[lat] = "Latitudine"
@@ -45,6 +49,8 @@ data_label[minute] = "Minuto"
 data_label[second] = "Secondo"
 data_label[voltage] = "Tensione [V]"
 data_label[current] = "Corrente [A]"
+
+logging = False
 
 # Dati dei plot
 marker_colors = [
@@ -84,8 +90,11 @@ def decode_packet(packet_ID):
         packet_data = ser.read(power[size] - 4)
         s = struct.unpack('<ff', packet_data)
         data[voltage] = data[voltage]*(1-adc_smoothing_factor) + adc_linear_correction(s[0], adc_cal_voltage)*11*adc_smoothing_factor
-        #data[current] = data[current]*(1-adc_smoothing_factor) + (adc_linear_correction(s[1])-0.33)*38.8788*adc_smoothing_factor
-        data[current] = data[current]*(1-adc_smoothing_factor) + adc_linear_correction(s[1], adc_cal_current)*adc_smoothing_factor
+
+        if adc_linear_correction(s[1], adc_cal_current) > current_threshold_filter:
+            data[current] = data[current]*(1-adc_smoothing_factor) + adc_linear_correction(s[1], adc_cal_current)*adc_smoothing_factor
+        else:
+            data[current] = data[current]*(1-adc_smoothing_factor)  
 
 def update_data():
     while True:
@@ -104,7 +113,35 @@ dpg.create_viewport(title='LIFTUP Data Monitor', width=600, height=600)
 with dpg.font_registry():
     font1 = dpg.add_font("brass-mono-bold.ttf", 18)
 
+with dpg.theme(tag="LOG-B-theme"):
+    with dpg.theme_component(dpg.mvButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (239,83,80,150))
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (239,83,80,200))
+
+with dpg.theme(tag="LOG-B-REC-theme"):
+    with dpg.theme_component(dpg.mvButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (239,83,80,255))
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (239,83,80,150))
+
+def log_button_callback():
+    global logging
+
+    if logging:
+        dpg.set_value("LOG-N", "Filename...")
+        logging = False
+        dpg.configure_item("LOG-B", label="START LOG")
+    else:
+        dpg.set_value("LOG-N", datetime.now().strftime("Log-%d.%m.%Y-%H.%M.%S"))
+        logging = True
+        dpg.configure_item("LOG-B", label="STOP LOG")
+        dpg.bind_item_theme("LOG-B", "LOG-B-REC-theme")
+
 with dpg.window(label="Data table", height=screen_height, width=screen_width/4):
+
+    with dpg.group(horizontal=True):
+        dpg.add_input_text(tag="LOG-N", default_value="Filename...", width=screen_width/8)
+        dpg.add_button(tag="LOG-B", label="START LOG", callback=log_button_callback)
+        dpg.bind_item_theme("LOG-B", "LOG-B-theme")
 
     with dpg.table(header_row=False, row_background=True,
                    borders_innerH=True, borders_outerH=True, borders_innerV=True,
@@ -178,6 +215,41 @@ def plot_create(plot_ID):
 
 plot_create(0)
 plot_create(1)
+
+def log_data():
+    global logging
+    
+    prev_time = time.time()
+    blink_status = True
+    
+    while True:
+
+        if logging:
+
+            folder = "logs/"
+            filename = folder + dpg.get_value("LOG-N")
+
+            if not os.path.exists(folder):
+                os.makedirs(folder)
+            
+            if not os.path.exists(filename):
+                with open(filename, mode='a', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(data_label)
+            
+            with open(filename, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(data)
+
+            if time.time() - prev_time > 1:
+                if blink_status:
+                    dpg.bind_item_theme("LOG-B", "LOG-B-theme")
+                else:
+                    dpg.bind_item_theme("LOG-B", "LOG-B-REC-theme")
+                blink_status = not blink_status
+                prev_time = time.time()
+
+threading.Thread(target=log_data).start()
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
