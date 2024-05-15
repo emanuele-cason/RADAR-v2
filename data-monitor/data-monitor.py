@@ -7,33 +7,33 @@ from datetime import datetime
 import random
 import os
 import csv
+import serial.tools.list_ports
 
 import dearpygui.dearpygui as dpg
 import pyautogui
-
 
 screen_width, screen_height = pyautogui.size()
 screen_height *= 0.9
 
 # Proprietà del pacchetto: [ID, dimensione in byte].
 # La dimensione deve essere quella del pacchetto con ID compreso (ovvero così come arriva dalla ground station).
+
 ID = 0
 size = 1
 gps_loc = [1, 28]
 gps_clk = [2, 28]
 power = [3, 12]
 
-ser = serial.Serial('COM8', 500000)
-
 # Dati ricevuti via radio
+
 data = [0]*14
 data_label = [""]*14
 nSat, lat, lon, alt, speed, cog, day, month, year, hour, minute, second, voltage, current = range(14)
 data_dec = [0,6,6,2,2,0,0,0,0,0,0,0,4,4]
 adc_smoothing_factor = 0.05
-adc_cal_voltage=[0.996139854, 0.137942677]
-adc_cal_current=[20.13434425, 2.687814483]
-current_threshold_filter = 4 # Corrente sotto la quale il dato di corrente viene considerato nullo
+adc_cal_voltage=[10.957538394, 1.517369447] # Costanti m e q della funzione y = mx + q, dove data in input x la tensione letta dall'ADC, y è la tensione reale al partitore
+adc_cal_current=[20.13434425, 2.687814483] # Costanti m e q della funzione y = mx + q, dove data in input x la tensione letta dall'ADC, y è la corrente reale al partitore
+current_threshold_filter = 4 # Corrente sotto la quale il dato di corrente viene considerato nullo, serve ad evitare le elevate imprecisioni del sensore/partitore per bassi amperaggi
 
 data_label[nSat] = "Satelliti"
 data_label[lat] = "Latitudine"
@@ -61,16 +61,56 @@ marker_colors = [
     [171,71,188, 255],  # Viola
 ]
 
-plot_data_y = []
+# Liste di liste (popolate in seguito) contenenti i dati degli assi x, y e dell'ID che identifica il tipo di dato (lat, lon, ...) riferiti all'ID dell'elemento grafico plot specificato come indice.
+# Ad esempio il plot#69, che rappresenta la valocità in funzione del tempo avrà come dati sugli assi le liste: plot_data_x[69], plot_data_y[69], e come indice rappresentativo del dato: plot_data_ID[69] = 4.
+
 plot_data_x = []
+plot_data_y = []
 plot_data_ID = []
 
-# I pacchetti sono interpretati dalla variabile ID (già decodificata) in poi. Per questo alla dimensione del pacchetto
-# originale si sottrae 4 (4 byte dell'integer ID)
+# Viene creata la viewport (coincide con la finestra di Windows).
+
+dpg.create_context()
+dpg.create_viewport(title='LIFTUP Data Monitor', width=600, height=600)
+
+# Apre la porta seriale "COM-X" passata come argomento stringa
+
+def open_serial(port):
+    global ser
+    
+    try:
+        ser = serial.Serial(port, 500000)
+        dpg.set_value("PORT-C", ser.port)
+    except:
+        pass
+
+# Usare o specificando una porta specifica da aprire con argomenti (porta); oppure in modalità automatica (cerca nella descrione-porta ricevuta da OS le keyword con arg (None)
+
+def port_select(port_selected):
+    global ports
+    ports = sorted(serial.tools.list_ports.comports())
+    port_description_keywords = ["UART", "CP210x", "CH340"]
+
+    if port_selected == None:
+        for port in ports:
+            for keyword in port_description_keywords:
+                if keyword in port[1]:
+                    open_serial(port[0])
+                    print("Auto port: ", port[0], flush=True)
+
+    else:
+        open_serial(port_selected)
+
+    dpg.configure_item("PORT-C", items=[port[0] for port in ports])
+
+# Restituisce il valore ottenuto dalla relazione lineare di calibrazione specificata
 
 def adc_linear_correction(reading, regr):
     return reading*regr[0] + regr[1]
-    
+
+# I pacchetti sono decoificati. I byte sono interpretati dalla variabile ID (già decodificata) in poi. Per questo alla dimensione del pacchetto
+# originale si sottrae 4 (4 byte dell'integer ID).
+
 def decode_packet(packet_ID):
     
     if packet_ID == gps_loc[ID]:
@@ -89,29 +129,36 @@ def decode_packet(packet_ID):
 
         packet_data = ser.read(power[size] - 4)
         s = struct.unpack('<ff', packet_data)
-        data[voltage] = data[voltage]*(1-adc_smoothing_factor) + adc_linear_correction(s[0], adc_cal_voltage)*11*adc_smoothing_factor
+        data[voltage] = data[voltage]*(1-adc_smoothing_factor) + adc_linear_correction(s[0], adc_cal_voltage)*adc_smoothing_factor
 
         if adc_linear_correction(s[1], adc_cal_current) > current_threshold_filter:
             data[current] = data[current]*(1-adc_smoothing_factor) + adc_linear_correction(s[1], adc_cal_current)*adc_smoothing_factor
         else:
             data[current] = data[current]*(1-adc_smoothing_factor)  
 
+# Stabilisce l'ID del pacchetto ricevuto e lo passa come argomento alla funzione di decodifica.
+
 def update_data():
+    
     while True:
-        # Legge l'ID del pacchetto, ovvero i primi 4 byte
-        packet_ID_bytes = ser.read(4)
-        packet_ID = struct.unpack('<I', packet_ID_bytes)[0]  # Interpreta i 4 byte come un intero
-         
-        # Decodifica il pacchetto
-        decode_packet(packet_ID)
 
-threading.Thread(target=update_data).start()
-
-dpg.create_context()
-dpg.create_viewport(title='LIFTUP Data Monitor', width=600, height=600)
+        try:
+            # Legge l'ID del pacchetto, ovvero i primi 4 byte
+            packet_ID_bytes = ser.read(4)
+            packet_ID = struct.unpack('<I', packet_ID_bytes)[0]  # Interpreta i 4 byte come un intero
+             
+            # Decodifica il pacchetto
+            decode_packet(packet_ID)
+        except: pass
+        
+# Definiti font e temi
 
 with dpg.font_registry():
     font1 = dpg.add_font("brass-mono-bold.ttf", 18)
+
+with dpg.theme(tag="PL-T"):
+    with dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 3, category=dpg.mvThemeCat_Plots)
 
 with dpg.theme(tag="LOG-B-theme"):
     with dpg.theme_component(dpg.mvButton):
@@ -122,6 +169,8 @@ with dpg.theme(tag="LOG-B-REC-theme"):
     with dpg.theme_component(dpg.mvButton):
         dpg.add_theme_color(dpg.mvThemeCol_Button, (239,83,80,255))
         dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (239,83,80,150))
+
+# Callback dei pulsanti dei controlli di log.
 
 def log_button_callback():
     global logging
@@ -136,27 +185,58 @@ def log_button_callback():
         dpg.configure_item("LOG-B", label="STOP LOG")
         dpg.bind_item_theme("LOG-B", "LOG-B-REC-theme")
 
-with dpg.window(label="Data table", height=screen_height, width=screen_width/4):
+# Callback degli elementi grafici per la selezione della porta.
 
-    with dpg.group(horizontal=True):
-        dpg.add_input_text(tag="LOG-N", default_value="Filename...", width=screen_width/8)
-        dpg.add_button(tag="LOG-B", label="START LOG", callback=log_button_callback)
-        dpg.bind_item_theme("LOG-B", "LOG-B-theme")
+def port_callback():
+    try:
+        ser.close()
+    except: pass
+    port_select(dpg.get_value("PORT-C"))
 
-    with dpg.table(header_row=False, row_background=True,
-                   borders_innerH=True, borders_outerH=True, borders_innerV=True,
-                   borders_outerV=True):
+def port_button_callback():
+    ports = sorted(serial.tools.list_ports.comports())
+    dpg.configure_item("PORT-C", items=[port[0] for port in ports])
 
-        dpg.add_table_column()
-        dpg.add_table_column()
+# Creazione e configurazione finestra dei dati in diretta. Non richiede siano già stati ricevuti i dati da inserire.
 
-        for i in range(len(data)):
-            with dpg.table_row():
-                dpg.add_text(data_label[i])
-                data_text = dpg.add_text("-", tag=f"DT{i}")
-                dpg.bind_item_font(data_text, font1)
+def data_table_create():
+    
+    with dpg.window(label="Data table", height=screen_height, width=screen_width/4):
 
-def plot_data_selected(sender, app_data, user_data):
+        right_item_width = screen_width/7
+
+        # Selezione porta
+
+        with dpg.group(horizontal=True):
+            dpg.add_combo(width=right_item_width, height_mode=dpg.mvComboHeight_Small, tag="PORT-C", callback=port_callback)
+            dpg.add_button(tag="PORT-B", label="AGGIORNA", callback=port_button_callback)
+
+        # Controlli dei log
+
+        with dpg.group(horizontal=True):
+            dpg.add_input_text(tag="LOG-N", default_value="Filename...", width=right_item_width)
+            dpg.add_button(tag="LOG-B", label="START LOG", callback=log_button_callback)
+            dpg.bind_item_theme("LOG-B", "LOG-B-theme")
+
+        # Tabella dei dati
+
+        with dpg.table(header_row=False, row_background=True,
+                       borders_innerH=True, borders_outerH=True, borders_innerV=True,
+                       borders_outerV=True):
+
+            dpg.add_table_column()
+            dpg.add_table_column()
+
+            for i in range(len(data)):
+                with dpg.table_row():
+                    dpg.add_text(data_label[i])
+                    data_text = dpg.add_text("-", tag=f"DT{i}")
+                    dpg.bind_item_font(data_text, font1)
+
+# Funzione di callback chiamata a selezione avvenuta del dato da diagrammare. Gli argomenti sono: sender (contiene il tag dell'elemento che ha chiamato la callback, gestito automaticamente dall'API), app_data (contiene la stringa selezionata, gestito automaticamente dall'API) e user_data (argomento specificato alla chiamata che contiene l'ID del plot da cui arriva la callback).
+# Azzera gli assi del plot relativo. Non richiede siano già stati ricevuti dati.
+
+def plot_selection_callback(sender, app_data, user_data):
     global plot_data_x, plot_data_y, plot_data_ID
 
     if sender == f"PL{user_data}-C":
@@ -168,13 +248,19 @@ def plot_data_selected(sender, app_data, user_data):
         dpg.configure_item(f"PL{user_data}-YA", label=data_label[plot_data_ID[user_data]])
         dpg.bind_item_theme(f"PL{user_data}-YA-serie", "PL-T")
 
+# Funzione di callback dei bottoni di controllo dei plot. 
+
 def plot_button_callback(sender, app_data, user_data):
     global marker_i
+
+    # Tasto di sync (pareggia la dimensione del buffer in tutti i plot).
 
     if sender == f"PL{user_data}-S":
         for plot_ID in range(len(plot_data_x)):
             if not plot_ID == user_data:
                 dpg.set_value(f"PL{plot_ID}-B", dpg.get_value(f"PL{user_data}-B"))
+
+    # Tasto di aggiunta dei marker.
     
     if sender.startswith("PL") and sender.endswith("-M"):
 
@@ -183,9 +269,8 @@ def plot_button_callback(sender, app_data, user_data):
         for plot_ID in range(len(plot_data_x)):
             dpg.add_plot_annotation(parent=f"PL{plot_ID}", label=f"M{marker_i}", default_value=(plot_data_x[plot_ID][-1], plot_data_y[plot_ID][-1]), color=marker_colors[random.randint(0, len(marker_colors)-1)])
 
-with dpg.theme(tag="PL-T"):
-    with dpg.theme_component(dpg.mvAll):
-        dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 3, category=dpg.mvThemeCat_Plots)
+# Creazione del plot, con argomento l'ID del plot da creare. Ogni volta che la funzione è chiamata viene generato il plot relativo al dato ID.
+# Generare i plot con ID progressivo !!!
 
 def plot_create(plot_ID):
     global plot_data_x, plot_data_y, plot_data_ID
@@ -197,7 +282,7 @@ def plot_create(plot_ID):
     with dpg.window(label=f"Real time plot #{plot_ID}", pos=[screen_width/4, plot_ID*screen_height/2], height=screen_height/2, width=screen_width*0.75):
 
         with dpg.group(horizontal=True):
-            dpg.add_combo(data_label, width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot_ID}-C", default_value=data_label[plot_data_ID[plot_ID]], callback=plot_data_selected, user_data=plot_ID)
+            dpg.add_combo(data_label, width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot_ID}-C", default_value=data_label[plot_data_ID[plot_ID]], callback=plot_selection_callback, user_data=plot_ID)
             dpg.add_radio_button(items=("Manuale","Completo", "Insegui"), horizontal=True, default_value="Completo", tag=f"PL{plot_ID}-RB")
             dpg.add_slider_int(label="Buffer", tag=f"PL{plot_ID}-B", default_value=1000, min_value=100, max_value=5000, width=200)
             dpg.add_button(tag=f"PL{plot_ID}-S", label="Sync", callback=plot_button_callback, user_data=plot_ID)
@@ -213,8 +298,7 @@ def plot_create(plot_ID):
             dpg.add_line_series(plot_data_x[plot_ID], plot_data_y[plot_ID], label=data_label[plot_data_ID[plot_ID]], parent=f"PL{plot_ID}-YA", tag=f"PL{plot_ID}-YA-serie")
             dpg.bind_item_theme(f"PL{plot_ID}-YA-serie", "PL-T")
 
-plot_create(0)
-plot_create(1)
+# Funzione di log. Gestisce anche il lampeggio del pulsante di registrazione.
 
 def log_data():
     global logging
@@ -249,15 +333,25 @@ def log_data():
                 blink_status = not blink_status
                 prev_time = time.time()
 
-threading.Thread(target=log_data).start()
+data_table_create()
+plot_create(0)
+plot_create(1)
+
+port_select(None)
+threading.Thread(target=update_data).start()
+#threading.Thread(target=log_data).start()
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
 
 while dpg.is_dearpygui_running():
 
+    # Aggiornamento dei dati in tabella.
+
     for i in range(len(data)):
         dpg.set_value(f"DT{i}", f"{data[i]:.{data_dec[i]}f}")
+
+    # Aggiornamento dei dati dei plot, in base alla modalità di visualizzazione scelta.
 
     for plot_ID in range(len(plot_data_ID)):
 
