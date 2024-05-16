@@ -201,21 +201,22 @@ def port_button_callback():
 
 def data_table_create():
     
-    with dpg.window(label="Data table", height=screen_height, width=screen_width/4):
+    with dpg.window(label="Tabella dati", height=screen_height, width=screen_width/4):
 
-        right_item_width = screen_width/7
+        left_item_width = screen_width/4*0.705
+        rigth_item_width = screen_width/4*0.225
 
         # Selezione porta
 
         with dpg.group(horizontal=True):
-            dpg.add_combo(width=right_item_width, height_mode=dpg.mvComboHeight_Small, tag="PORT-C", callback=port_callback)
-            dpg.add_button(tag="PORT-B", label="AGGIORNA", callback=port_button_callback)
+            dpg.add_combo(width=left_item_width, height_mode=dpg.mvComboHeight_Small, tag="PORT-C", callback=port_callback)
+            dpg.add_button(tag="PORT-B", label="AGGIORNA", width=rigth_item_width, callback=port_button_callback)
 
         # Controlli dei log
 
         with dpg.group(horizontal=True):
-            dpg.add_input_text(tag="LOG-N", default_value="Filename...", width=right_item_width)
-            dpg.add_button(tag="LOG-B", label="START LOG", callback=log_button_callback)
+            dpg.add_input_text(tag="LOG-N", default_value="Filename...", width=left_item_width)
+            dpg.add_button(tag="LOG-B", label="START LOG", width=rigth_item_width, callback=log_button_callback)
             dpg.bind_item_theme("LOG-B", "LOG-B-theme")
 
         # Tabella dei dati
@@ -279,7 +280,7 @@ def plot_create(plot_ID):
     plot_data_y.append([])
     plot_data_ID.append(11)
     
-    with dpg.window(label=f"Real time plot #{plot_ID}", pos=[screen_width/4, plot_ID*screen_height/2], height=screen_height/2, width=screen_width*0.75):
+    with dpg.window(label=f"Diagramma in tempo reale #{plot_ID}", pos=[screen_width/4, plot_ID*screen_height/2], height=screen_height/2, width=screen_width*0.75):
 
         with dpg.group(horizontal=True):
             dpg.add_combo(data_label, width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot_ID}-C", default_value=data_label[plot_data_ID[plot_ID]], callback=plot_selection_callback, user_data=plot_ID)
@@ -302,36 +303,36 @@ def plot_create(plot_ID):
 
 def log_data():
     global logging
+
+    if not hasattr(log_data, 'prev_time'):
+        log_data.prev_time = time.time()
+        log_data.blink_status = True
     
-    prev_time = time.time()
-    blink_status = True
-    
-    while True:
+    if logging:
 
-        if logging:
+        folder = "logs/"
+        filename = folder + dpg.get_value("LOG-N")
 
-            folder = "logs/"
-            filename = folder + dpg.get_value("LOG-N")
-
-            if not os.path.exists(folder):
-                os.makedirs(folder)
-            
-            if not os.path.exists(filename):
-                with open(filename, mode='a', newline='') as file:
-                    writer = csv.writer(file)
-                    writer.writerow(data_label)
-            
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+        
+        if not os.path.exists(filename):
             with open(filename, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(data)
+                writer.writerow(data_label)
+        
+        with open(filename, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(data)
 
-            if time.time() - prev_time > 1:
-                if blink_status:
-                    dpg.bind_item_theme("LOG-B", "LOG-B-theme")
-                else:
-                    dpg.bind_item_theme("LOG-B", "LOG-B-REC-theme")
-                blink_status = not blink_status
-                prev_time = time.time()
+        if time.time() - log_data.prev_time > 1:
+            if log_data.blink_status:
+                dpg.bind_item_theme("LOG-B", "LOG-B-theme")
+            else:
+                dpg.bind_item_theme("LOG-B", "LOG-B-REC-theme")
+                
+            log_data.blink_status = not log_data.blink_status
+            log_data.prev_time = time.time()
 
 data_table_create()
 plot_create(0)
@@ -339,7 +340,6 @@ plot_create(1)
 
 port_select(None)
 threading.Thread(target=update_data).start()
-#threading.Thread(target=log_data).start()
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
@@ -373,6 +373,8 @@ while dpg.is_dearpygui_running():
         if dpg.get_value(f"PL{plot_ID}-RB") == "Completo" or dpg.get_value(f"PL{plot_ID}-RB") == "Insegui":
             dpg.fit_axis_data(f"PL{plot_ID}-XA")
             dpg.set_axis_limits(f"PL{plot_ID}-YA", min(plot_data_y[plot_ID])-abs(0.1*max(plot_data_y[plot_ID])), max(plot_data_y[plot_ID])+abs(0.1*max(plot_data_y[plot_ID])))
+
+        log_data()
                         
     dpg.render_dearpygui_frame()
 
