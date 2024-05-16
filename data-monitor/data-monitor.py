@@ -68,6 +68,10 @@ plot_data_x = []
 plot_data_y = []
 plot_data_ID = []
 
+# Frequenza di scrittura dei log.
+log_last_update = time.time()
+log_update_frequency = 10
+
 # Viene creata la viewport (coincide con la finestra di Windows).
 
 dpg.create_context()
@@ -301,7 +305,7 @@ def plot_create(plot_ID):
 # Funzione di log. Gestisce anche il lampeggio del pulsante di registrazione.
 
 def log_data():
-    global logging
+    global logging, log_last_update
 
     time_label = "Ora [hh:mm:ss]"
     header_labels = [time_label] + data_label[:]
@@ -325,10 +329,13 @@ def log_data():
             with open(filename, mode='a', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(header_labels)
-        
-        with open(filename, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(data_row)
+                
+        if time.time() - log_last_update > (1/log_update_frequency):
+            with open(filename, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(data_row)
+
+            log_last_update = time.time()
 
         if time.time() - log_data.prev_time > 1:
             if log_data.blink_status:
