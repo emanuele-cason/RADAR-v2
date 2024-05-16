@@ -96,7 +96,6 @@ def port_select(port_selected):
             for keyword in port_description_keywords:
                 if keyword in port[1]:
                     open_serial(port[0])
-                    print("Auto port: ", port[0], flush=True)
 
     else:
         open_serial(port_selected)
@@ -180,7 +179,7 @@ def log_button_callback():
         logging = False
         dpg.configure_item("LOG-B", label="START LOG")
     else:
-        dpg.set_value("LOG-N", datetime.now().strftime("Log-%d.%m.%Y-%H.%M.%S"))
+        dpg.set_value("LOG-N", datetime.now().strftime("Log-%d.%m.%Y-%H.%M.%S.csv"))
         logging = True
         dpg.configure_item("LOG-B", label="STOP LOG")
         dpg.bind_item_theme("LOG-B", "LOG-B-REC-theme")
@@ -304,6 +303,12 @@ def plot_create(plot_ID):
 def log_data():
     global logging
 
+    time_label = "Ora [hh:mm:ss]"
+    header_labels = [time_label] + data_label[:]
+
+    time_data = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+    data_row = [time_data] + data[:]
+
     if not hasattr(log_data, 'prev_time'):
         log_data.prev_time = time.time()
         log_data.blink_status = True
@@ -319,11 +324,11 @@ def log_data():
         if not os.path.exists(filename):
             with open(filename, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(data_label)
+                writer.writerow(header_labels)
         
         with open(filename, mode='a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(data)
+            writer.writerow(data_row)
 
         if time.time() - log_data.prev_time > 1:
             if log_data.blink_status:
