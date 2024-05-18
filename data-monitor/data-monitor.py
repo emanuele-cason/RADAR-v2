@@ -26,15 +26,16 @@ power = [3, 12]
 
 # Dati ricevuti via radio
 
-data = [0]*14
-data_label = [""]*14
-nSat, lat, lon, alt, speed, cog, day, month, year, hour, minute, second, voltage, current = range(14)
-data_dec = [0,6,6,2,2,0,0,0,0,0,0,0,4,4]
+data = [0]*16
+data_label = [""]*16
+clock, nSat, lat, lon, alt, speed, cog, day, month, year, hour, minute, second, voltage, current, power = range(16)
+data_dec = [0,0,6,6,2,2,0,0,0,0,0,0,0,4,4,4]
 adc_smoothing_factor = 0.05
 adc_cal_voltage=[10.957538394, 1.517369447] # Costanti m e q della funzione y = mx + q, dove data in input x la tensione letta dall'ADC, y è la tensione reale al partitore
 adc_cal_current=[20.13434425, 2.687814483] # Costanti m e q della funzione y = mx + q, dove data in input x la tensione letta dall'ADC, y è la corrente reale al partitore
 current_threshold_filter = 4 # Corrente sotto la quale il dato di corrente viene considerato nullo, serve ad evitare le elevate imprecisioni del sensore/partitore per bassi amperaggi
 
+data_label[clock] = "Tempo"
 data_label[nSat] = "Satelliti"
 data_label[lat] = "Latitudine"
 data_label[lon] = "Longitudine"
@@ -49,10 +50,16 @@ data_label[minute] = "Minuto"
 data_label[second] = "Secondo"
 data_label[voltage] = "Tensione [V]"
 data_label[current] = "Corrente [A]"
+data_label[power] = "Potenza el. [W]"
 
 logging = False
 
+# Dati da mostrare in tabella
+
+table_data = [clock, nSat, lat, lon, alt, speed, cog, voltage, current, power]
+
 # Dati dei plot
+
 marker_colors = [
     [102,187,106, 255],    # Verde
     [66,165,245, 255],    # Blu
@@ -61,12 +68,57 @@ marker_colors = [
     [171,71,188, 255],  # Viola
 ]
 
-# Liste di liste (popolate in seguito) contenenti i dati degli assi x, y e dell'ID che identifica il tipo di dato (lat, lon, ...) riferiti all'ID dell'elemento grafico plot specificato come indice.
-# Ad esempio il plot#69, che rappresenta la valocità in funzione del tempo avrà come dati sugli assi le liste: plot_data_x[69], plot_data_y[69], e come indice rappresentativo del dato: plot_data_ID[69] = 4.
+# Oggetto plot
 
-plot_data_x = []
-plot_data_y = []
-plot_data_ID = []
+plots = []
+plot_types = ["Posizione", "Potenza"]
+
+class PlotData:
+    
+    def __init__(self, ID, plot_type):
+        self.ID = ID
+        self.plot_type = plot_type
+        self.name = plot_types[plot_type]
+
+        match plot_type:
+
+            case 0:
+                self.data_x = []
+                self.data_y = [[],[]]
+                self.data_x_ID = clock
+                self.data_y_ID = [alt, speed]
+
+            case 1:
+                self.data_x = []
+                self.data_y = [[],[], []]
+                self.data_x_ID = clock
+                self.data_y_ID = [voltage, current, power]
+
+    def get_x_label(self):
+        return data_label[self.data_x_ID]
+
+    def get_y_axis_limits(self, buffer):
+
+        if not buffer == None:
+            __max_value = max(value for sublist in self.data_y[-buffer:] for value in sublist)
+            __min_value = min(value for sublist in self.data_y[-buffer:] for value in sublist)
+        else:
+            __max_value = max(value for sublist in self.data_y for value in sublist)
+            __min_value = min(value for sublist in self.data_y for value in sublist)
+
+        __delta = __max_value - __min_value
+        return [__min_value-abs(0.1*__delta), __max_value+abs(0.1*__delta)]
+
+    def update_data(self):
+        self.data_x.append(data[self.data_x_ID])
+        for i, data_id in enumerate(self.data_y_ID):
+            self.data_y[i].append(data[data_id])
+
+    def get_x_buffer(self, buffer):
+        return self.data_x[-buffer:]
+
+    def get_y_buffer(self, data_ID, buffer):
+        return self.data_y[self.data_y_ID.index(data_ID)][-buffer:]
 
 # Frequenza di scrittura dei log.
 log_last_update = time.time()
@@ -137,13 +189,17 @@ def decode_packet(packet_ID):
         if adc_linear_correction(s[1], adc_cal_current) > current_threshold_filter:
             data[current] = data[current]*(1-adc_smoothing_factor) + adc_linear_correction(s[1], adc_cal_current)*adc_smoothing_factor
         else:
-            data[current] = data[current]*(1-adc_smoothing_factor)  
+            data[current] = data[current]*(1-adc_smoothing_factor)
+
+        data[power] = data[voltage]*data[current]
 
 # Stabilisce l'ID del pacchetto ricevuto e lo passa come argomento alla funzione di decodifica.
 
 def update_data():
     
     while True:
+
+        data[clock] = time.time()
 
         try:
             # Legge l'ID del pacchetto, ovvero i primi 4 byte
@@ -153,6 +209,73 @@ def update_data():
             # Decodifica il pacchetto
             decode_packet(packet_ID)
         except: pass
+
+# Simula la ricezione dei dati - per motivi di sviluppo
+
+def simulate_update_data():
+    global data
+
+    # Parametri per la variazione continua
+    variation_factors = {
+    'nSat': (0, 30),
+    'lat': (-0.1, 0.1),
+    'lon': (-0.1, 0.1),
+    'alt': (-10, 10),
+    'speed': (-5, 5),
+    'cog': (-5, 5),
+    'day': (0, 1),
+    'month': (0, 1),
+    'year': (0, 1),
+    'hour': (0, 1),
+    'minute': (0, 1),
+    'second': (0, 1),
+    'voltage': (-0.1, 0.1),
+    'current': (-0.5, 0.5)
+    }
+
+    def apply_variation(value, variation_range):
+        return value + random.uniform(*variation_range)
+
+    while True:
+
+        data[clock] = time.time()
+
+        # Genera dati casuali plausibili per GPS con variazione continua
+        data[nSat] = apply_variation(data[nSat], variation_factors['nSat'])
+        data[lat] = apply_variation(data[lat], variation_factors['lat'])
+        data[lon] = apply_variation(data[lon], variation_factors['lon'])
+        data[alt] = apply_variation(data[alt], variation_factors['alt'])
+        data[speed] = apply_variation(data[speed], variation_factors['speed'])
+        data[cog] = apply_variation(data[cog], variation_factors['cog'])
+
+        # Mantieni i valori di nSat entro i limiti validi
+        data[nSat] = max(0, min(30, data[nSat]))
+
+        # Genera dati casuali plausibili per l'orologio GPS con variazione continua
+        data[day] = int(apply_variation(data[day], variation_factors['day']))
+        data[month] = int(apply_variation(data[month], variation_factors['month']))
+        data[year] = int(apply_variation(data[year], variation_factors['year']))
+        data[hour] = int(apply_variation(data[hour], variation_factors['hour']))
+        data[minute] = int(apply_variation(data[minute], variation_factors['minute']))
+        data[second] = int(apply_variation(data[second], variation_factors['second']))
+
+        # Assicurati che i valori temporali siano validi
+        data[day] = max(1, min(31, data[day]))
+        data[month] = max(1, min(12, data[month]))
+        data[hour] = max(0, min(23, data[hour]))
+        data[minute] = max(0, min(59, data[minute]))
+        data[second] = max(0, min(59, data[second]))
+
+        # Genera dati casuali plausibili per il pacchetto di potenza con variazione continua
+        voltage_value = apply_variation(data[voltage], variation_factors['voltage'])  # Voltaggio in Volt
+        current_value = apply_variation(data[current], variation_factors['current'])  # Corrente in Ampere
+
+        # Applica la formula di smoothing e correzione
+        data[voltage] = data[voltage] * (1 - adc_smoothing_factor) + voltage_value * adc_smoothing_factor
+        data[current] = data[current] * (1 - adc_smoothing_factor) + current_value * adc_smoothing_factor
+        data[power] = data[voltage]*data[current]
+
+        #time.sleep(0.1)
         
 # Definiti font e temi
 
@@ -231,7 +354,7 @@ def data_table_create():
             dpg.add_table_column()
             dpg.add_table_column()
 
-            for i in range(len(data)):
+            for i in table_data:
                 with dpg.table_row():
                     dpg.add_text(data_label[i])
                     data_text = dpg.add_text("-", tag=f"DT{i}")
@@ -241,77 +364,81 @@ def data_table_create():
 # Azzera gli assi del plot relativo. Non richiede siano già stati ricevuti dati.
 
 def plot_selection_callback(sender, app_data, user_data):
-    global plot_data_x, plot_data_y, plot_data_ID
 
-    if sender == f"PL{user_data}-C":
-        plot_data_ID[user_data] = data_label.index(app_data)
-        plot_data_x[user_data] = []
-        plot_data_y[user_data] = []
-        dpg.delete_item(f"PL{user_data}-YA-serie")
-        dpg.add_line_series(plot_data_x[user_data], plot_data_y[user_data], label=data_label[plot_data_ID[user_data]], parent=f"PL{user_data}-YA", tag=f"PL{user_data}-YA-serie")
-        dpg.configure_item(f"PL{user_data}-YA", label=data_label[plot_data_ID[user_data]])
-        dpg.bind_item_theme(f"PL{user_data}-YA-serie", "PL-T")
+    plot = plots[user_data]
+
+    if sender == f"PL{plot.ID}-C":
+
+        for data_ID in plot.data_y_ID:
+            dpg.delete_item(f"PL{plot.ID}-YA-{data_ID}")
+
+        plots[plot.ID] = PlotData(plot.ID, plot_types.index(app_data))
+        plot = plots[plot.ID]
+        
+        for i, data_ID in enumerate(plot.data_y_ID):
+            dpg.add_line_series(plot.data_x, plot.data_y[i], label=data_label[data_ID], parent=f"PL{plot.ID}-YA", tag=f"PL{plot.ID}-YA-{data_ID}")
+            dpg.bind_item_theme(f"PL{plot.ID}-YA-{data_ID}", "PL-T")
 
 # Funzione di callback dei bottoni di controllo dei plot. 
 
 def plot_button_callback(sender, app_data, user_data):
     global marker_i
 
+    plot = plots[user_data]
+
     # Tasto di sync (pareggia la dimensione del buffer in tutti i plot).
 
-    if sender == f"PL{user_data}-S":
-        for plot_ID in range(len(plot_data_x)):
-            if not plot_ID == user_data:
-                dpg.set_value(f"PL{plot_ID}-B", dpg.get_value(f"PL{user_data}-B"))
+    if sender == f"PL{plot.ID}-S":
+        for p in plots:
+            if not p.ID == plot:
+                dpg.set_value(f"PL{p.ID}-B", dpg.get_value(f"PL{plot.ID}-B"))
 
     # Tasto di aggiunta dei marker.
     
     if sender.startswith("PL") and sender.endswith("-M"):
 
         marker_i +=1
+        marker_color=marker_colors[random.randint(0, len(marker_colors)-1)]
         
-        for plot_ID in range(len(plot_data_x)):
-            dpg.add_plot_annotation(parent=f"PL{plot_ID}", label=f"M{marker_i}", default_value=(plot_data_x[plot_ID][-1], plot_data_y[plot_ID][-1]), color=marker_colors[random.randint(0, len(marker_colors)-1)])
+        for p in plots:
+            for serie in p.data_y:
+                dpg.add_plot_annotation(parent=f"PL{p.ID}", label=f"M{marker_i}", default_value=(p.data_x[-1], serie[-1]), color=marker_color)
 
 # Creazione del plot, con argomento l'ID del plot da creare. Ogni volta che la funzione è chiamata viene generato il plot relativo al dato ID.
 # Generare i plot con ID progressivo !!!
 
-def plot_create(plot_ID):
-    global plot_data_x, plot_data_y, plot_data_ID
+def plot_create(plot_type):
 
-    plot_data_x.append([])
-    plot_data_y.append([])
-    plot_data_ID.append(11)
+    plot = PlotData(len(plots), plot_type)
+    plots.append(plot)
     
-    with dpg.window(label=f"Diagramma in tempo reale #{plot_ID}", pos=[screen_width/4, plot_ID*screen_height/2], height=screen_height/2, width=screen_width*0.75):
+    with dpg.window(label=f"Diagramma in tempo reale #{plot.ID}", pos=[screen_width/4, plot.ID*screen_height/2], height=screen_height/2, width=screen_width*0.75):
 
         with dpg.group(horizontal=True):
-            dpg.add_combo(data_label, width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot_ID}-C", default_value=data_label[plot_data_ID[plot_ID]], callback=plot_selection_callback, user_data=plot_ID)
-            dpg.add_radio_button(items=("Manuale","Completo", "Insegui"), horizontal=True, default_value="Completo", tag=f"PL{plot_ID}-RB")
-            dpg.add_slider_int(label="Buffer", tag=f"PL{plot_ID}-B", default_value=1000, min_value=100, max_value=5000, width=200)
-            dpg.add_button(tag=f"PL{plot_ID}-S", label="Sync", callback=plot_button_callback, user_data=plot_ID)
-            dpg.add_button(tag=f"PL{plot_ID}-M", label="Marker", callback=plot_button_callback, user_data=plot_ID)
+            dpg.add_combo(plot_types, width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot.ID}-C", default_value=plot.name, callback=plot_selection_callback, user_data=plot.ID)
+            dpg.add_radio_button(items=("Manuale","Completo", "Insegui"), horizontal=True, default_value="Completo", tag=f"PL{plot.ID}-RB")
+            dpg.add_slider_int(label="Buffer", tag=f"PL{plot.ID}-B", default_value=1000, min_value=100, max_value=5000, width=200)
+            dpg.add_button(tag=f"PL{plot.ID}-S", label="Sync", callback=plot_button_callback, user_data=plot.ID)
+            dpg.add_button(tag=f"PL{plot.ID}-M", label="Marker", callback=plot_button_callback, user_data=plot.ID)
             global marker_i
             marker_i = 0
             
-        with dpg.plot(tag=f"PL{plot_ID}", height=screen_height/2.5, width=screen_width*0.74):
+        with dpg.plot(tag=f"PL{plot.ID}", height=screen_height/2.5, width=screen_width*0.74):
 
-            dpg.add_plot_axis(dpg.mvXAxis, label=" ", tag=f"PL{plot_ID}-XA", time=True)
-            dpg.add_plot_axis(dpg.mvYAxis, label=data_label[plot_data_ID[plot_ID]], tag=f"PL{plot_ID}-YA")
-
-            dpg.add_line_series(plot_data_x[plot_ID], plot_data_y[plot_ID], label=data_label[plot_data_ID[plot_ID]], parent=f"PL{plot_ID}-YA", tag=f"PL{plot_ID}-YA-serie")
-            dpg.bind_item_theme(f"PL{plot_ID}-YA-serie", "PL-T")
+            dpg.add_plot_axis(dpg.mvXAxis, label=plot.get_x_label(), tag=f"PL{plot.ID}-XA", time=(plot.data_x_ID == clock))
+            dpg.add_plot_axis(dpg.mvYAxis, tag=f"PL{plot.ID}-YA")
+            dpg.add_plot_legend()
+            
+            for i, data_ID in enumerate(plot.data_y_ID):
+                dpg.add_line_series(plot.data_x, plot.data_y[i], label=data_label[data_ID], parent=f"PL{plot.ID}-YA", tag=f"PL{plot.ID}-YA-{data_ID}")
+                dpg.bind_item_theme(f"PL{plot.ID}-YA-{data_ID}", "PL-T")
 
 # Funzione di log. Gestisce anche il lampeggio del pulsante di registrazione.
 
 def log_data():
     global logging, log_last_update
 
-    time_label = "Ora [hh:mm:ss]"
-    header_labels = [time_label] + data_label[:]
-
-    time_data = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-    data_row = [time_data] + data[:]
+    data_row = [datetime.fromtimestamp(data[clock]).strftime('%H:%M:%S.%f')[:-3]] + data[:]
 
     if not hasattr(log_data, 'prev_time'):
         log_data.prev_time = time.time()
@@ -328,7 +455,7 @@ def log_data():
         if not os.path.exists(filename):
             with open(filename, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(header_labels)
+                writer.writerow(data_label)
                 
         if time.time() - log_last_update > (1/log_update_frequency):
             with open(filename, mode='a', newline='') as file:
@@ -347,12 +474,13 @@ def log_data():
             log_data.prev_time = time.time()
 
 data_table_create()
+
 plot_create(0)
-plot_create(1)
 
 port_select(None)
-threading.Thread(target=update_data).start()
-
+#threading.Thread(target=update_data).start()
+threading.Thread(target=simulate_update_data).start()
+    
 dpg.setup_dearpygui()
 dpg.show_viewport()
 
@@ -360,31 +488,39 @@ while dpg.is_dearpygui_running():
 
     # Aggiornamento dei dati in tabella.
 
-    for i in range(len(data)):
-        dpg.set_value(f"DT{i}", f"{data[i]:.{data_dec[i]}f}")
+    for i in table_data:
+        if i == clock:
+            dpg.set_value(f"DT{i}", datetime.fromtimestamp(data[clock]).strftime('%H:%M:%S.%f')[:-3])
+        else:
+            dpg.set_value(f"DT{i}", f"{data[i]:.{data_dec[i]}f}")
 
     # Aggiornamento dei dati dei plot, in base alla modalità di visualizzazione scelta.
 
-    for plot_ID in range(len(plot_data_ID)):
+    for plot in plots:
 
-        plot_data_y[plot_ID].append(data[plot_data_ID[plot_ID]])
-        plot_data_x[plot_ID].append(time.time())
+        plot.update_data()
+        buffer = dpg.get_value(f"PL{plot.ID}-B")
 
-        if dpg.get_value(f"PL{plot_ID}-RB") == "Manuale":
-            dpg.set_axis_limits_auto(f"PL{plot_ID}-YA")
+        if dpg.get_value(f"PL{plot.ID}-RB") == "Manuale":
+            dpg.set_axis_limits_auto(f"PL{plot.ID}-YA")
 
-        if dpg.get_value(f"PL{plot_ID}-RB") == "Insegui":
-            if len(plot_data_x[plot_ID]) > dpg.get_value(f"PL{plot_ID}-B"):
-                dpg.set_value(f"PL{plot_ID}-YA-serie", [plot_data_x[plot_ID][-dpg.get_value(f"PL{plot_ID}-B"):], plot_data_y[plot_ID][-dpg.get_value(f"PL{plot_ID}-B"):]])
-            else:
-                dpg.set_value(f"PL{plot_ID}-YA-serie", [plot_data_x[plot_ID], plot_data_y[plot_ID]])
+        if dpg.get_value(f"PL{plot.ID}-RB") == "Insegui":
+            for i, data_ID in enumerate(plot.data_y_ID):
+                if len(plot.data_x) > dpg.get_value(f"PL{plot.ID}-B"):
+                    if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.get_x_buffer(buffer), plot.get_y_buffer(data_ID, buffer)])
+                else:
+                    if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.data_x, plot.data_y[i]])
 
-        else:    
-            dpg.set_value(f"PL{plot_ID}-YA-serie", [plot_data_x[plot_ID], plot_data_y[plot_ID]])
+            dpg.fit_axis_data(f"PL{plot.ID}-XA")
+            dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(buffer)[0], plot.get_y_axis_limits(buffer)[1])
 
-        if dpg.get_value(f"PL{plot_ID}-RB") == "Completo" or dpg.get_value(f"PL{plot_ID}-RB") == "Insegui":
-            dpg.fit_axis_data(f"PL{plot_ID}-XA")
-            dpg.set_axis_limits(f"PL{plot_ID}-YA", min(plot_data_y[plot_ID])-abs(0.1*max(plot_data_y[plot_ID])), max(plot_data_y[plot_ID])+abs(0.1*max(plot_data_y[plot_ID])))
+        else:
+            for i, data_ID in enumerate(plot.data_y_ID):
+                if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.data_x, plot.data_y[i]])
+
+        if dpg.get_value(f"PL{plot.ID}-RB") == "Completo":
+            dpg.fit_axis_data(f"PL{plot.ID}-XA")
+            dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(None)[0], plot.get_y_axis_limits(None)[1])
 
         log_data()
                         
