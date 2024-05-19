@@ -8,6 +8,7 @@ import random
 import os
 import csv
 import serial.tools.list_ports
+import math
 
 import dearpygui.dearpygui as dpg
 import pyautogui
@@ -68,10 +69,10 @@ marker_colors = [
     [171,71,188, 255],  # Viola
 ]
 
-# Oggetto plot
+# Oggetto plot, definito in base a un ID progressivo, che corrisponde anche all'indice con il quale lo stesso plot è salvato nella lista plots.
 
 plots = []
-plot_types = ["Posizione", "Potenza"]
+plot_types = ["Posizione", "Potenza", "Traiettoria"]    # Mantenere ultima "Traiettoria" o modificare combo-item di selezione plot.
 
 class PlotData:
     
@@ -79,6 +80,9 @@ class PlotData:
         self.ID = ID
         self.plot_type = plot_type
         self.name = plot_types[plot_type]
+        self.pos=[screen_width/4, self.ID*screen_height/2]
+        self.height=screen_height/2
+        self.width=screen_width*0.75
 
         match plot_type:
 
@@ -94,6 +98,14 @@ class PlotData:
                 self.data_x_ID = clock
                 self.data_y_ID = [voltage, current, power]
 
+            case 2:
+                self.data_x = []
+                self.data_y = [[]]
+                self.data_x_ID = lon
+                self.data_y_ID = [lat]
+                self.height=screen_height/2
+                self.width=screen_width/2
+                
     def get_x_label(self):
         return data_label[self.data_x_ID]
 
@@ -120,6 +132,47 @@ class PlotData:
     def get_y_buffer(self, data_ID, buffer):
         return self.data_y[self.data_y_ID.index(data_ID)][-buffer:]
 
+    # Restituisce i limiti da impostare agli assi del grafico per visualizzare la traiettoria in scala con la realtà
+
+    def get_lon_lat_limits(self, buffer):
+        
+        if not buffer == None:
+            __max_lon = max(self.data_x[-buffer:])
+            __min_lon = min(self.data_x[-buffer:])
+            __max_lat = max(self.data_y[0][-buffer:])
+            __min_lat = min(self.data_y[0][-buffer:])
+        else:
+            __max_lon = max(self.data_x)
+            __min_lon = min(self.data_x)
+            __max_lat = max(self.data_y[0])
+            __min_lat = min(self.data_y[0])
+
+            
+        __delta_lon = __max_lon - __min_lon
+        __delta_lat = __max_lat - __min_lat
+        
+        # Distanza effettiva in km
+        __dist_lat = 111 * __delta_lat  # 1 grado di latitudine ~ 111 km
+        __mean_lat = (__min_lat + __max_lat) / 2
+        __dist_lon = 111 * math.cos(math.radians(__mean_lat)) * __delta_lon  # 1 grado di longitudine varia con la latitudine
+
+        # Determina la scala comune
+        max_dist = max(__dist_lat, __dist_lon)
+
+        # Estende i limiti per avere la stessa scala
+        if __dist_lat < max_dist:
+            extra_lat = (max_dist / 111) - __delta_lat
+            __min_lat -= extra_lat / 2
+            __max_lat += extra_lat / 2
+
+        if __dist_lon < max_dist:
+            extra_lon = (max_dist / (111 * math.cos(math.radians(__mean_lat)))) - __delta_lon
+            __min_lon -= extra_lon / 2
+            __max_lon += extra_lon / 2
+
+        return [[__min_lon, __max_lon], [__min_lat, __max_lat]]
+        
+        
 # Frequenza di scrittura dei log.
 log_last_update = time.time()
 log_update_frequency = 10
@@ -215,11 +268,14 @@ def update_data():
 def simulate_update_data():
     global data
 
+    data[lat]=45
+    data[lon]=11
+
     # Parametri per la variazione continua
     variation_factors = {
     'nSat': (0, 30),
-    'lat': (-0.1, 0.1),
-    'lon': (-0.1, 0.1),
+    'lat': (-0.001, 0.001),
+    'lon': (-0.001, 0.001),
     'alt': (-10, 10),
     'speed': (-5, 5),
     'cog': (-5, 5),
@@ -412,10 +468,12 @@ def plot_create(plot_type):
     plot = PlotData(len(plots), plot_type)
     plots.append(plot)
     
-    with dpg.window(label=f"Diagramma in tempo reale #{plot.ID}", pos=[screen_width/4, plot.ID*screen_height/2], height=screen_height/2, width=screen_width*0.75):
+    with dpg.window(label=f"Diagramma in tempo reale #{plot.ID}", pos=plot.pos, height=plot.height, width=plot.width):
+
 
         with dpg.group(horizontal=True):
-            dpg.add_combo(plot_types, width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot.ID}-C", default_value=plot.name, callback=plot_selection_callback, user_data=plot.ID)
+            if not plot.plot_type == plot_types.index("Traiettoria"):
+                dpg.add_combo(plot_types[:-1], width=200, height_mode=dpg.mvComboHeight_Small, tag=f"PL{plot.ID}-C", default_value=plot.name, callback=plot_selection_callback, user_data=plot.ID)
             dpg.add_radio_button(items=("Manuale","Completo", "Insegui"), horizontal=True, default_value="Completo", tag=f"PL{plot.ID}-RB")
             dpg.add_slider_int(label="Buffer", tag=f"PL{plot.ID}-B", default_value=1000, min_value=100, max_value=5000, width=200)
             dpg.add_button(tag=f"PL{plot.ID}-S", label="Sync", callback=plot_button_callback, user_data=plot.ID)
@@ -423,7 +481,7 @@ def plot_create(plot_type):
             global marker_i
             marker_i = 0
             
-        with dpg.plot(tag=f"PL{plot.ID}", height=screen_height/2.5, width=screen_width*0.74):
+        with dpg.plot(tag=f"PL{plot.ID}", height=plot.height-70, width=plot.width*0.97):
 
             dpg.add_plot_axis(dpg.mvXAxis, label=plot.get_x_label(), tag=f"PL{plot.ID}-XA", time=(plot.data_x_ID == clock))
             dpg.add_plot_axis(dpg.mvYAxis, tag=f"PL{plot.ID}-YA")
@@ -476,6 +534,7 @@ def log_data():
 data_table_create()
 
 plot_create(0)
+plot_create(2)
 
 port_select(None)
 #threading.Thread(target=update_data).start()
@@ -502,7 +561,11 @@ while dpg.is_dearpygui_running():
         buffer = dpg.get_value(f"PL{plot.ID}-B")
 
         if dpg.get_value(f"PL{plot.ID}-RB") == "Manuale":
+            
             dpg.set_axis_limits_auto(f"PL{plot.ID}-YA")
+            
+            if plot.plot_type == plot_types.index("Traiettoria"):
+                dpg.set_axis_limits_auto(f"PL{plot.ID}-XA")
 
         if dpg.get_value(f"PL{plot.ID}-RB") == "Insegui":
             for i, data_ID in enumerate(plot.data_y_ID):
@@ -511,16 +574,25 @@ while dpg.is_dearpygui_running():
                 else:
                     if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.data_x, plot.data_y[i]])
 
-            dpg.fit_axis_data(f"PL{plot.ID}-XA")
-            dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(buffer)[0], plot.get_y_axis_limits(buffer)[1])
+            if plot.plot_type == plot_types.index("Traiettoria"):
+                dpg.set_axis_limits(f"PL{plot.ID}-XA", plot.get_lon_lat_limits(buffer)[0][0], plot.get_lon_lat_limits(buffer)[0][1])
+                dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_lon_lat_limits(buffer)[1][0], plot.get_lon_lat_limits(buffer)[1][1])
+            else: 
+                dpg.fit_axis_data(f"PL{plot.ID}-XA")
+                dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(buffer)[0], plot.get_y_axis_limits(buffer)[1])
 
         else:
             for i, data_ID in enumerate(plot.data_y_ID):
                 if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.data_x, plot.data_y[i]])
 
         if dpg.get_value(f"PL{plot.ID}-RB") == "Completo":
-            dpg.fit_axis_data(f"PL{plot.ID}-XA")
-            dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(None)[0], plot.get_y_axis_limits(None)[1])
+            
+            if plot.plot_type == plot_types.index("Traiettoria"):
+                dpg.set_axis_limits(f"PL{plot.ID}-XA", plot.get_lon_lat_limits(None)[0][0], plot.get_lon_lat_limits(None)[0][1])
+                dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_lon_lat_limits(None)[1][0], plot.get_lon_lat_limits(None)[1][1])
+            else:    
+                dpg.fit_axis_data(f"PL{plot.ID}-XA")
+                dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(None)[0], plot.get_y_axis_limits(None)[1])
 
         log_data()
                         
