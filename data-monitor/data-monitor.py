@@ -490,7 +490,6 @@ def plot_create(plot_type):
             dpg.add_plot_axis(dpg.mvYAxis, tag=f"PL{plot.ID}-YA")
             
             if not plot.plot_type == plot_types.index("Traiettoria"):
-                dpg.configure_item(f"PL{plot.ID}", equal_aspects=True)
                 dpg.add_plot_legend()
             else:
                 dpg.configure_item(f"PL{plot.ID}-XA", label="Distanza Ovest-Est")
