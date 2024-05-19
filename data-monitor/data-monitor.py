@@ -53,8 +53,6 @@ data_label[voltage] = "Tensione [V]"
 data_label[current] = "Corrente [A]"
 data_label[power] = "Potenza el. [W]"
 
-logging = False
-
 # Dati da mostrare in tabella
 
 table_data = [clock, nSat, lat, lon, alt, speed, cog, voltage, current, power]
@@ -105,6 +103,20 @@ class PlotData:
                 self.data_y_ID = [lat]
                 self.height=screen_height/2
                 self.width=screen_width/2
+                self.start_point = [data[lat],data[lon]]
+                self.dist_x = []
+                self.dist_y = [[]]
+
+    def update_data(self):
+        self.data_x.append(data[self.data_x_ID])
+        if self.plot_type == 2:
+            self.dist_x.append((self.start_point[1] - data[lon])*111320*math.cos(math.radians(self.start_point[0])))
+
+        for i, data_id in enumerate(self.data_y_ID):
+            self.data_y[i].append(data[data_id])
+
+            if self.plot_type == 2:
+                self.dist_y[i].append((self.start_point[0] - data[lat])*111320)
                 
     def get_x_label(self):
         return data_label[self.data_x_ID]
@@ -121,59 +133,36 @@ class PlotData:
         __delta = __max_value - __min_value
         return [__min_value-abs(0.1*__delta), __max_value+abs(0.1*__delta)]
 
-    def update_data(self):
-        self.data_x.append(data[self.data_x_ID])
-        for i, data_id in enumerate(self.data_y_ID):
-            self.data_y[i].append(data[data_id])
-
-    def get_x_buffer(self, buffer):
-        return self.data_x[-buffer:]
-
-    def get_y_buffer(self, data_ID, buffer):
-        return self.data_y[self.data_y_ID.index(data_ID)][-buffer:]
-
-    # Restituisce i limiti da impostare agli assi del grafico per visualizzare la traiettoria in scala con la realtà
-
-    def get_lon_lat_limits(self, buffer):
+    def get_data_x(self, buffer):
         
-        if not buffer == None:
-            __max_lon = max(self.data_x[-buffer:])
-            __min_lon = min(self.data_x[-buffer:])
-            __max_lat = max(self.data_y[0][-buffer:])
-            __min_lat = min(self.data_y[0][-buffer:])
+        if buffer == None:
+            if not self.plot_type == plot_types.index("Traiettoria"):
+                return self.data_x
+            else:
+                return self.dist_x
         else:
-            __max_lon = max(self.data_x)
-            __min_lon = min(self.data_x)
-            __max_lat = max(self.data_y[0])
-            __min_lat = min(self.data_y[0])
+            if not self.plot_type == plot_types.index("Traiettoria"):
+                return self.data_x[-buffer:]
+            else:
+                return self.dist_x[-buffer:]
 
-            
-        __delta_lon = __max_lon - __min_lon
-        __delta_lat = __max_lat - __min_lat
+    def get_data_y(self, buffer):
         
-        # Distanza effettiva in km
-        __dist_lat = 111 * __delta_lat  # 1 grado di latitudine ~ 111 km
-        __mean_lat = (__min_lat + __max_lat) / 2
-        __dist_lon = 111 * math.cos(math.radians(__mean_lat)) * __delta_lon  # 1 grado di longitudine varia con la latitudine
-
-        # Determina la scala comune
-        max_dist = max(__dist_lat, __dist_lon)
-
-        # Estende i limiti per avere la stessa scala
-        if __dist_lat < max_dist:
-            extra_lat = (max_dist / 111) - __delta_lat
-            __min_lat -= extra_lat / 2
-            __max_lat += extra_lat / 2
-
-        if __dist_lon < max_dist:
-            extra_lon = (max_dist / (111 * math.cos(math.radians(__mean_lat)))) - __delta_lon
-            __min_lon -= extra_lon / 2
-            __max_lon += extra_lon / 2
-
-        return [[__min_lon, __max_lon], [__min_lat, __max_lat]]
-        
+        if buffer == None:
+            if not self.plot_type == plot_types.index("Traiettoria"):
+                return self.data_y
+            else:
+                return self.dist_y
+                
+        else:
+            if not self.plot_type == plot_types.index("Traiettoria"):
+                return [serie[-buffer:] for serie in self.data_y]
+            else:
+                return [serie[-buffer:] for serie in self.dist_y]        
         
 # Frequenza di scrittura dei log.
+logging = False
+log_marker = "-"
 log_last_update = time.time()
 log_update_frequency = 10
 
@@ -298,8 +287,17 @@ def simulate_update_data():
 
         # Genera dati casuali plausibili per GPS con variazione continua
         data[nSat] = apply_variation(data[nSat], variation_factors['nSat'])
-        data[lat] = apply_variation(data[lat], variation_factors['lat'])
-        data[lon] = apply_variation(data[lon], variation_factors['lon'])
+
+        R = 6371.0
+        angle = 2 * math.pi * (data[clock] % 10) / 10
+        lat_offset = 3 / R * math.cos(angle)
+        data[lat] = 45 + math.degrees(lat_offset)
+
+        lat_rad = math.radians(45)
+        angle = 2 * math.pi * (data[clock] % 10) / 10
+        lon_offset = 3 / (R * math.cos(lat_rad)) * math.sin(angle)
+        data[lon] = 12 + math.degrees(lon_offset)
+
         data[alt] = apply_variation(data[alt], variation_factors['alt'])
         data[speed] = apply_variation(data[speed], variation_factors['speed'])
         data[cog] = apply_variation(data[cog], variation_factors['cog'])
@@ -331,7 +329,7 @@ def simulate_update_data():
         data[current] = data[current] * (1 - adc_smoothing_factor) + current_value * adc_smoothing_factor
         data[power] = data[voltage]*data[current]
 
-        #time.sleep(0.1)
+        time.sleep(0.05)
         
 # Definiti font e temi
 
@@ -432,13 +430,13 @@ def plot_selection_callback(sender, app_data, user_data):
         plot = plots[plot.ID]
         
         for i, data_ID in enumerate(plot.data_y_ID):
-            dpg.add_line_series(plot.data_x, plot.data_y[i], label=data_label[data_ID], parent=f"PL{plot.ID}-YA", tag=f"PL{plot.ID}-YA-{data_ID}")
+            dpg.add_line_series(plot.get_data_x(None), plot.get_data_y(None)[i], label=data_label[data_ID], parent=f"PL{plot.ID}-YA", tag=f"PL{plot.ID}-YA-{data_ID}")
             dpg.bind_item_theme(f"PL{plot.ID}-YA-{data_ID}", "PL-T")
 
 # Funzione di callback dei bottoni di controllo dei plot. 
 
 def plot_button_callback(sender, app_data, user_data):
-    global marker_i
+    global marker_i, log_marker
 
     plot = plots[user_data]
 
@@ -455,10 +453,14 @@ def plot_button_callback(sender, app_data, user_data):
 
         marker_i +=1
         marker_color=marker_colors[random.randint(0, len(marker_colors)-1)]
+        log_marker = f"M{marker_i}"
         
         for p in plots:
-            for serie in p.data_y:
-                dpg.add_plot_annotation(parent=f"PL{p.ID}", label=f"M{marker_i}", default_value=(p.data_x[-1], serie[-1]), color=marker_color)
+            for serie in p.get_data_y(None):
+                dpg.add_plot_annotation(parent=f"PL{p.ID}", label=f"M{marker_i}", default_value=(p.get_data_x(None)[-1], serie[-1]), color=marker_color)
+
+    if sender == f"PL{plot.ID}-D":
+        plots[user_data] = PlotData(plot.ID, plot.plot_type)
 
 # Creazione del plot, con argomento l'ID del plot da creare. Ogni volta che la funzione è chiamata viene generato il plot relativo al dato ID.
 # Generare i plot con ID progressivo !!!
@@ -478,6 +480,7 @@ def plot_create(plot_type):
             dpg.add_slider_int(label="Buffer", tag=f"PL{plot.ID}-B", default_value=1000, min_value=100, max_value=5000, width=200)
             dpg.add_button(tag=f"PL{plot.ID}-S", label="Sync", callback=plot_button_callback, user_data=plot.ID)
             dpg.add_button(tag=f"PL{plot.ID}-M", label="Marker", callback=plot_button_callback, user_data=plot.ID)
+            dpg.add_button(tag=f"PL{plot.ID}-D", label="Clear", callback=plot_button_callback, user_data=plot.ID)
             global marker_i
             marker_i = 0
             
@@ -485,18 +488,25 @@ def plot_create(plot_type):
 
             dpg.add_plot_axis(dpg.mvXAxis, label=plot.get_x_label(), tag=f"PL{plot.ID}-XA", time=(plot.data_x_ID == clock))
             dpg.add_plot_axis(dpg.mvYAxis, tag=f"PL{plot.ID}-YA")
-            dpg.add_plot_legend()
+            
+            if not plot.plot_type == plot_types.index("Traiettoria"):
+                dpg.configure_item(f"PL{plot.ID}", equal_aspects=True)
+                dpg.add_plot_legend()
+            else:
+                dpg.configure_item(f"PL{plot.ID}-XA", label="Distanza Ovest-Est")
+                dpg.configure_item(f"PL{plot.ID}-YA", label="Distanza Sud-Nord")
             
             for i, data_ID in enumerate(plot.data_y_ID):
-                dpg.add_line_series(plot.data_x, plot.data_y[i], label=data_label[data_ID], parent=f"PL{plot.ID}-YA", tag=f"PL{plot.ID}-YA-{data_ID}")
+                dpg.add_line_series(plot.get_data_x(None), plot.get_data_y(None)[i], label=data_label[data_ID], parent=f"PL{plot.ID}-YA", tag=f"PL{plot.ID}-YA-{data_ID}")
                 dpg.bind_item_theme(f"PL{plot.ID}-YA-{data_ID}", "PL-T")
 
 # Funzione di log. Gestisce anche il lampeggio del pulsante di registrazione.
 
 def log_data():
-    global logging, log_last_update
+    global logging, log_last_update, log_marker
 
-    data_row = [datetime.fromtimestamp(data[clock]).strftime('%H:%M:%S.%f')[:-3]] + data[:]
+    header_row = data_label[:] + ["Marker"]
+    data_row = [datetime.fromtimestamp(data[clock]).strftime('%H:%M:%S.%f')[:-3]] + data[:] + [log_marker]
 
     if not hasattr(log_data, 'prev_time'):
         log_data.prev_time = time.time()
@@ -513,12 +523,13 @@ def log_data():
         if not os.path.exists(filename):
             with open(filename, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(data_label)
+                writer.writerow(header_row)
                 
         if time.time() - log_last_update > (1/log_update_frequency):
             with open(filename, mode='a', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(data_row)
+                if not log_marker == "-": log_marker="-" 
 
             log_last_update = time.time()
 
@@ -565,31 +576,33 @@ while dpg.is_dearpygui_running():
             dpg.set_axis_limits_auto(f"PL{plot.ID}-YA")
             
             if plot.plot_type == plot_types.index("Traiettoria"):
-                dpg.set_axis_limits_auto(f"PL{plot.ID}-XA")
+                dpg.configure_item(f"PL{plot.ID}", equal_aspects=True)
 
         if dpg.get_value(f"PL{plot.ID}-RB") == "Insegui":
             for i, data_ID in enumerate(plot.data_y_ID):
-                if len(plot.data_x) > dpg.get_value(f"PL{plot.ID}-B"):
-                    if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.get_x_buffer(buffer), plot.get_y_buffer(data_ID, buffer)])
+                if len(plot.get_data_x(None)) > dpg.get_value(f"PL{plot.ID}-B"):
+                    if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.get_data_x(buffer), plot.get_data_y(buffer)[i]])
                 else:
-                    if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.data_x, plot.data_y[i]])
+                    if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.get_data_x(None), plot.get_data_y(None)[i]])
 
             if plot.plot_type == plot_types.index("Traiettoria"):
-                dpg.set_axis_limits(f"PL{plot.ID}-XA", plot.get_lon_lat_limits(buffer)[0][0], plot.get_lon_lat_limits(buffer)[0][1])
-                dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_lon_lat_limits(buffer)[1][0], plot.get_lon_lat_limits(buffer)[1][1])
+                dpg.configure_item(f"PL{plot.ID}", equal_aspects=True)
+                dpg.fit_axis_data(f"PL{plot.ID}-XA")
+                dpg.fit_axis_data(f"PL{plot.ID}-YA")
             else: 
                 dpg.fit_axis_data(f"PL{plot.ID}-XA")
                 dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(buffer)[0], plot.get_y_axis_limits(buffer)[1])
 
         else:
             for i, data_ID in enumerate(plot.data_y_ID):
-                if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.data_x, plot.data_y[i]])
+                if(dpg.does_item_exist(f"PL{plot.ID}-YA-{data_ID}")): dpg.set_value(f"PL{plot.ID}-YA-{data_ID}", [plot.get_data_x(None), plot.get_data_y(None)[i]])
 
         if dpg.get_value(f"PL{plot.ID}-RB") == "Completo":
             
             if plot.plot_type == plot_types.index("Traiettoria"):
-                dpg.set_axis_limits(f"PL{plot.ID}-XA", plot.get_lon_lat_limits(None)[0][0], plot.get_lon_lat_limits(None)[0][1])
-                dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_lon_lat_limits(None)[1][0], plot.get_lon_lat_limits(None)[1][1])
+                dpg.configure_item(f"PL{plot.ID}", equal_aspects=True)
+                dpg.fit_axis_data(f"PL{plot.ID}-XA")
+                dpg.fit_axis_data(f"PL{plot.ID}-YA")
             else:    
                 dpg.fit_axis_data(f"PL{plot.ID}-XA")
                 dpg.set_axis_limits(f"PL{plot.ID}-YA", plot.get_y_axis_limits(None)[0], plot.get_y_axis_limits(None)[1])
