@@ -21,9 +21,9 @@ screen_height *= 0.9
 
 ID = 0
 size = 1
-gps_loc = [1, 28]
-gps_clk = [2, 28]
-power = [3, 12]
+gps_loc_pkt = [1, 28]
+gps_clk_pkt = [2, 28]
+power_pkt = [3, 12]
 
 # Dati ricevuti via radio
 
@@ -210,21 +210,21 @@ def adc_linear_correction(reading, regr):
 
 def decode_packet(packet_ID):
     
-    if packet_ID == gps_loc[ID]:
+    if packet_ID == gps_loc_pkt[ID]:
 
-        packet_data = ser.read(gps_loc[size] - 4)
+        packet_data = ser.read(gps_loc_pkt[size] - 4)
         s = struct.unpack('<Ifffff', packet_data)
         data[nSat], data[lat], data[lon], data[alt], data[speed], data[cog] = s
         
-    if packet_ID == gps_clk[ID]:
+    if packet_ID == gps_clk_pkt[ID]:
 
-        packet_data = ser.read(gps_clk[size] - 4)
+        packet_data = ser.read(gps_clk_pkt[size] - 4)
         s = struct.unpack('<IIIIII', packet_data)
         data[day], data[month], data[year], data[hour], data[minute], data[second] = s
 
-    if packet_ID == power[ID]:
+    if packet_ID == power_pkt[ID]:
 
-        packet_data = ser.read(power[size] - 4)
+        packet_data = ser.read(power_pkt[size] - 4)
         s = struct.unpack('<ff', packet_data)
         data[voltage] = data[voltage]*(1-adc_smoothing_factor) + adc_linear_correction(s[0], adc_cal_voltage)*adc_smoothing_factor
 
@@ -547,8 +547,8 @@ plot_create(0)
 plot_create(2)
 
 port_select(None)
-#threading.Thread(target=update_data).start()
-threading.Thread(target=simulate_update_data).start()
+threading.Thread(target=update_data).start()
+#threading.Thread(target=simulate_update_data).start()
     
 dpg.setup_dearpygui()
 dpg.show_viewport()
