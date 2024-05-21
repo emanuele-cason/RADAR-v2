@@ -14,6 +14,7 @@ RF24 radio(CE_PIN, CSN_PIN);
 const byte GPS_LOC_PACKET_ID = 1;
 const byte GPS_CLK_PACKET_ID = 2;
 const byte POWER_PACKET_ID = 3;
+const byte IMU_PACKET_ID = 4;
 
 struct gps_loc_packet {
   uint32_t id = GPS_LOC_PACKET_ID;
@@ -41,6 +42,17 @@ struct power_packet {
   float current;
 } powerPacket;
 
+struct imu_packet{
+  uint32_t id = IMU_PACKET_ID;
+  float accX;
+  float accY;
+  float accZ;
+  float roll;
+  float pitch;
+  float yaw;
+  float temperature;
+} imuPacket;
+
 void writeTlm(const char *pkt, uint32_t length) {
 
   for (int i = 0; i < length; i++) {
@@ -52,6 +64,7 @@ void sendTlm() {
   writeTlm((const char *)&gpsLocPacket, sizeof(gpsLocPacket));
   writeTlm((const char *)&gpsClkPacket, sizeof(gpsClkPacket));
   writeTlm((const char *)&powerPacket, sizeof(powerPacket));
+  writeTlm((const char *)&imuPacket, sizeof(imuPacket));
 }
 
 void setup() {
@@ -87,6 +100,10 @@ void loop() {
 
     if(payload[0] == POWER_PACKET_ID){
       memcpy(&powerPacket, payload, sizeof(powerPacket));
+    }
+
+    if(payload[0] == IMU_PACKET_ID){
+      memcpy(&imuPacket, payload, sizeof(imuPacket));
     }
 
     sendTlm();

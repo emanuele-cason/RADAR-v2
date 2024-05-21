@@ -2,6 +2,11 @@
 #include "SPI.h"
 #include "nRF24L01.h"
 #include <TinyGPS++.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_LSM6DS3TRC.h>
+#include <Adafruit_LIS3MDL.h>
+#include <Adafruit_AHRS.h>
 
 RF24 radio(4, 5);              // Pin modulo tx/rx CE, CSN
 /*
@@ -13,6 +18,13 @@ RF24 radio(4, 5);              // Pin modulo tx/rx CE, CSN
 6 (MOSI) 23
 7 (MISO) 19 */
 
+// Istanze sensori della IMU
+Adafruit_LSM6DS3TRC lsm6ds;
+Adafruit_LIS3MDL lis3mdl;
+
+// Filtro AHRS per dati IMU
+Adafruit_Madgwick filter;
+
 #define GPS_BAUDRATE 9600
 
 const int VOLTAGE_PIN = 35;
@@ -20,15 +32,25 @@ const int CURRENT_PIN = 34;
 
 const byte GS_ADDRESS[5] = {'R', 'x', 'A', 'A', 'A'};
 const int RADIO_CH = 108;
-
 const int TX_INTERVAL = 100;
+
+// IMU - Frequenza di aggiornamento e valori di calibrazione (da ristabilire quando cambia posizionamento IMU in fusoliera) - ottenuti da MotionCal, seguendo la guida:
+//https://learn.adafruit.com/how-to-fuse-motion-sensor-data-into-ahrs-orientation-euler-quaternions/magnetic-calibration-with-motioncal
+const int IMU_FREQ = 20;
+float accelOffsets[3] = {0.0, 0.0, 0.0}; // accelerometro
+float gyroOffsets[3] = {0.0, 0.0, 0.0}; // giroscopio
+float magHardOffsets[3] = {-3.84, 33.35, -116.58}; // magnetometro
+float magSoftOffsets[9] = {0.98, 0.04, -0.00, 0.04, 1.03, 0.00, -0.00, 0.00, 1.00};
 
 const byte GPS_LOC_PACKET_ID = 1;
 const byte GPS_CLK_PACKET_ID = 2;
 const byte POWER_PACKET_ID = 3;
+const byte IMU_PACKET_ID = 4;
 
 TinyGPSPlus gps;
 unsigned long lastTX;
+
+unsigned long lastIMU;
 
 struct gps_loc_packet {
   uint32_t id = GPS_LOC_PACKET_ID;
@@ -56,6 +78,17 @@ struct power_packet {
   float current;
 } powerPacket;
 
+struct imu_packet{
+  uint32_t id = IMU_PACKET_ID;
+  float accX;
+  float accY;
+  float accZ;
+  float roll;
+  float pitch;
+  float yaw;
+  float temperature;
+} imuPacket;
+
 void radioInit() {
   radio.begin();
   radio.setChannel(
@@ -66,10 +99,50 @@ void radioInit() {
   radio.openWritingPipe(GS_ADDRESS);
 }
 
-void radioTx(){
-  radio.write(&gpsLocPacket, sizeof(gpsLocPacket));
-  radio.write(&gpsClkPacket, sizeof(gpsClkPacket));
-  radio.write(&powerPacket, sizeof(powerPacket));
+void imuInit() {
+  lsm6ds.begin_I2C();
+  lis3mdl.begin_I2C();
+  
+  lsm6ds.setAccelRange(LSM6DS_ACCEL_RANGE_4_G);
+  lsm6ds.setGyroRange(LSM6DS_GYRO_RANGE_500_DPS);
+  lis3mdl.setRange(LIS3MDL_RANGE_4_GAUSS);
+
+  lsm6ds.setAccelDataRate(LSM6DS_RATE_104_HZ);
+  lsm6ds.setGyroDataRate(LSM6DS_RATE_104_HZ);
+  lis3mdl.setDataRate(LIS3MDL_DATARATE_1000_HZ);
+  lis3mdl.setPerformanceMode(LIS3MDL_ULTRAHIGHMODE);
+  lis3mdl.setOperationMode(LIS3MDL_CONTINUOUSMODE);
+
+  filter.begin(IMU_FREQ);
+}
+
+void imuMagCalibrate(float &x, float &y, float &z){
+    // Applica l'hard iron offset
+  x -= magHardOffsets[0];
+  y -= magHardOffsets[1];
+  z -= magHardOffsets[2];
+
+  // Applica la matrice di soft iron
+  float xCal = magSoftOffsets[0] * x + magSoftOffsets[1] * y + magSoftOffsets[2] * z;
+  float yCal = magSoftOffsets[3] * x + magSoftOffsets[4] * y + magSoftOffsets[5] * z;
+  float zCal = magSoftOffsets[6] * x + magSoftOffsets[7] * y + magSoftOffsets[8] * z;
+
+  x = xCal;
+  y = yCal;
+  z = zCal;
+}
+
+void radioTx(void *arg){
+
+  while(true){
+
+    radio.write(&gpsLocPacket, sizeof(gpsLocPacket));
+    radio.write(&gpsClkPacket, sizeof(gpsClkPacket));
+    radio.write(&powerPacket, sizeof(powerPacket));
+    radio.write(&imuPacket, sizeof(imuPacket));   
+    
+    vTaskDelay(pdMS_TO_TICKS(TX_INTERVAL));
+  }
 }
 
 void gpsUpdate(){
@@ -113,19 +186,72 @@ void powerUpdate(){
   powerPacket.voltage = analogRead(VOLTAGE_PIN)*(3.3/4096.0);
 }
 
+void imuUpdate(){
+  // Lettura dati dal LSM6DS3TRC
+  sensors_event_t accel;
+  sensors_event_t gyro;
+  sensors_event_t temp;
+  lsm6ds.getEvent(&accel, &gyro, &temp);
+
+  // Lettura dati dal LIS3MDL
+  sensors_event_t mag;
+  lis3mdl.getEvent(&mag);
+
+  imuPacket.temperature = temp.temperature;
+
+  // Calibrazione dell'accelerometro
+  float accelX = (accel.acceleration.x - accelOffsets[0]);
+  float accelY = (accel.acceleration.y - accelOffsets[1]);
+  float accelZ = (accel.acceleration.z - accelOffsets[2]);
+
+  // Calibrazione del giroscopio
+  float gyroX = (gyro.gyro.x - gyroOffsets[0]);
+  float gyroY = (gyro.gyro.y - gyroOffsets[1]);
+  float gyroZ = (gyro.gyro.z - gyroOffsets[2]);
+
+  // Calibrazione del magnetometro
+  float magX = mag.magnetic.x;
+  float magY = mag.magnetic.y;
+  float magZ = mag.magnetic.z;
+  imuMagCalibrate(magX, magY, magZ);
+
+  // Aggiorna il filtro con i nuovi dati calibrati
+  filter.update(gyroX, gyroY, gyroZ, accelX, accelY, accelZ, magX, magY, magZ);
+
+  imuPacket.accX = accelX;
+  imuPacket.accY = accelY;
+  imuPacket.accZ = accelZ;
+  imuPacket.roll = filter.getRoll();
+  imuPacket.pitch = filter.getPitch();
+  imuPacket.yaw = filter.getYaw();
+}
+
 void setup() {
+  Serial.begin(500000);
   Serial2.begin(GPS_BAUDRATE);
   radioInit();
+  imuInit();
 
   lastTX = 0;
+  lastIMU = 0;
+
+  xTaskCreate(
+        radioTx,  // Funzione da eseguire
+        "radioTx",    // Nome del task
+        10000,         // Dimensione dello stack
+        NULL,          // Parametro da passare al task
+        1,             // Priorità del task
+        NULL           // Puntatore al task handle
+    );
 }
 
 void loop() {
   gpsUpdate();
   powerUpdate();
-  
-  if ((millis() - lastTX) > TX_INTERVAL){
-    radioTx();
-    lastTX = millis();
+
+  if ((millis() - lastIMU) > (1000/IMU_FREQ)){
+    Serial.println(millis() - lastIMU);
+    imuUpdate();
+    lastIMU = millis();
   }
 }

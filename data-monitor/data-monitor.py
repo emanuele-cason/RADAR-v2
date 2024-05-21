@@ -24,13 +24,15 @@ size = 1
 gps_loc_pkt = [1, 28]
 gps_clk_pkt = [2, 28]
 power_pkt = [3, 12]
+imu_pkt = [4, 32]
 
 # Dati ricevuti via radio
 
-data = [0]*16
-data_label = [""]*16
-clock, nSat, lat, lon, alt, speed, cog, day, month, year, hour, minute, second, voltage, current, power = range(16)
-data_dec = [0,0,6,6,2,2,0,0,0,0,0,0,0,4,4,4]
+data = [0]*24
+data_label = [""]*24
+clock, nSat, lat, lon, alt, speed, cog, day, month, year, hour, minute, second, voltage, current, power, accX, accY, accZ, roll, pitch, yaw, temp = range(23)
+data_dec = [0,0,6,6,2,2,0,0,0,0,0,0,0,4,4,4,3,3,3,0,0,0,1]
+
 adc_smoothing_factor = 0.05
 adc_cal_voltage=[10.957538394, 1.517369447] # Costanti m e q della funzione y = mx + q, dove data in input x la tensione letta dall'ADC, y è la tensione reale al partitore
 adc_cal_current=[20.13434425, 2.687814483] # Costanti m e q della funzione y = mx + q, dove data in input x la tensione letta dall'ADC, y è la corrente reale al partitore
@@ -52,10 +54,17 @@ data_label[second] = "Secondo"
 data_label[voltage] = "Tensione [V]"
 data_label[current] = "Corrente [A]"
 data_label[power] = "Potenza el. [W]"
+data_label[accX] = "Accelerazione X"
+data_label[accY] = "Accelerazione Y"
+data_label[accZ] = "Accelerazione Z"
+data_label[roll] = "Roll [°]"
+data_label[pitch] = "Pitch [°]"
+data_label[yaw] = "Yaw [°]"
+data_label[temp] = "Temperatura [°C]"
 
 # Dati da mostrare in tabella
 
-table_data = [clock, nSat, lat, lon, alt, speed, cog, voltage, current, power]
+table_data = [clock, nSat, lat, lon, alt, speed, cog, voltage, current, power, accX, accY, accZ, roll, pitch, yaw, temp]
 
 # Dati dei plot
 
@@ -70,7 +79,7 @@ marker_colors = [
 # Oggetto plot, definito in base a un ID progressivo, che corrisponde anche all'indice con il quale lo stesso plot è salvato nella lista plots.
 
 plots = []
-plot_types = ["Posizione", "Potenza", "Traiettoria"]    # Mantenere ultima "Traiettoria" o modificare combo-item di selezione plot.
+plot_types = ["Posizione", "Potenza", "Assetto", "Accelerazione", "Traiettoria"]    # Mantenere ultima "Traiettoria" o modificare combo-item di selezione plot.
 
 class PlotData:
     
@@ -98,6 +107,18 @@ class PlotData:
 
             case 2:
                 self.data_x = []
+                self.data_y = [[], [], []]
+                self.data_x_ID = clock
+                self.data_y_ID = [roll, pitch, yaw]
+
+            case 3:
+                self.data_x = []
+                self.data_y = [[],[], []]
+                self.data_x_ID = clock
+                self.data_y_ID = [accX, accY, accZ]
+
+            case 4:
+                self.data_x = []
                 self.data_y = [[]]
                 self.data_x_ID = lon
                 self.data_y_ID = [lat]
@@ -109,13 +130,13 @@ class PlotData:
 
     def update_data(self):
         self.data_x.append(data[self.data_x_ID])
-        if self.plot_type == 2:
+        if self.plot_type == plot_types.index("Traiettoria"):
             self.dist_x.append((self.start_point[1] - data[lon])*111320*math.cos(math.radians(self.start_point[0])))
 
         for i, data_id in enumerate(self.data_y_ID):
             self.data_y[i].append(data[data_id])
 
-            if self.plot_type == 2:
+            if self.plot_type == plot_types.index("Traiettoria"):
                 self.dist_y[i].append((self.start_point[0] - data[lat])*111320)
                 
     def get_x_label(self):
@@ -234,6 +255,12 @@ def decode_packet(packet_ID):
             data[current] = data[current]*(1-adc_smoothing_factor)
 
         data[power] = data[voltage]*data[current]
+
+    if packet_ID == imu_pkt[ID]:
+
+        packet_data = ser.read(imu_pkt[size] - 4)
+        s = struct.unpack('<fffffff', packet_data)
+        data[accX], data[accY], data[accZ], data[roll], data[pitch], data[yaw], data[temp] = s
 
 # Stabilisce l'ID del pacchetto ricevuto e lo passa come argomento alla funzione di decodifica.
 
@@ -544,7 +571,7 @@ def log_data():
 data_table_create()
 
 plot_create(0)
-plot_create(2)
+plot_create(4)
 
 port_select(None)
 threading.Thread(target=update_data).start()
