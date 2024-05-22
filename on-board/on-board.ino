@@ -36,7 +36,7 @@ const int TX_INTERVAL = 100;
 
 // IMU - Frequenza di aggiornamento e valori di calibrazione (da ristabilire quando cambia posizionamento IMU in fusoliera) - ottenuti da MotionCal, seguendo la guida:
 //https://learn.adafruit.com/how-to-fuse-motion-sensor-data-into-ahrs-orientation-euler-quaternions/magnetic-calibration-with-motioncal
-const int IMU_FREQ = 20;
+const int IMU_FREQ = 100;
 float accelOffsets[3] = {0.0, 0.0, 0.0}; // accelerometro
 float gyroOffsets[3] = {0.0, 0.0, 0.0}; // giroscopio
 float magHardOffsets[3] = {-3.84, 33.35, -116.58}; // magnetometro
@@ -107,8 +107,8 @@ void imuInit() {
   lsm6ds.setGyroRange(LSM6DS_GYRO_RANGE_500_DPS);
   lis3mdl.setRange(LIS3MDL_RANGE_4_GAUSS);
 
-  lsm6ds.setAccelDataRate(LSM6DS_RATE_104_HZ);
-  lsm6ds.setGyroDataRate(LSM6DS_RATE_104_HZ);
+  lsm6ds.setAccelDataRate(LSM6DS_RATE_1_66K_HZ);
+  lsm6ds.setGyroDataRate(LSM6DS_RATE_1_66K_HZ);
   lis3mdl.setDataRate(LIS3MDL_DATARATE_1000_HZ);
   lis3mdl.setPerformanceMode(LIS3MDL_ULTRAHIGHMODE);
   lis3mdl.setOperationMode(LIS3MDL_CONTINUOUSMODE);
@@ -205,9 +205,9 @@ void imuUpdate(){
   float accelZ = (accel.acceleration.z - accelOffsets[2]);
 
   // Calibrazione del giroscopio
-  float gyroX = (gyro.gyro.x - gyroOffsets[0]);
-  float gyroY = (gyro.gyro.y - gyroOffsets[1]);
-  float gyroZ = (gyro.gyro.z - gyroOffsets[2]);
+  float gyroX = (gyro.gyro.x - gyroOffsets[0])* SENSORS_RADS_TO_DPS;
+  float gyroY = (gyro.gyro.y - gyroOffsets[1])* SENSORS_RADS_TO_DPS;
+  float gyroZ = (gyro.gyro.z - gyroOffsets[2])* SENSORS_RADS_TO_DPS;
 
   // Calibrazione del magnetometro
   float magX = mag.magnetic.x;
