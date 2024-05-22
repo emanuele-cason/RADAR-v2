@@ -218,16 +218,19 @@ void imuUpdate(){
   // Aggiorna il filtro con i nuovi dati calibrati
   filter.update(gyroX, gyroY, gyroZ, accelX, accelY, accelZ, magX, magY, magZ);
 
-  imuPacket.accX = accelX;
-  imuPacket.accY = accelY;
-  imuPacket.accZ = accelZ;
+  float avg_weight = 1;
+  if (TX_INTERVAL > (1000/IMU_FREQ)) avg_weight = (1000.0 / IMU_FREQ) / TX_INTERVAL;
+
+  imuPacket.accX = imuPacket.accX * (1 - avg_weight) + accelX * avg_weight;
+  imuPacket.accY = imuPacket.accY * (1 - avg_weight) + accelY * avg_weight;
+  imuPacket.accZ = imuPacket.accZ * (1 - avg_weight) + accelZ * avg_weight;
+  
   imuPacket.roll = filter.getRoll();
   imuPacket.pitch = filter.getPitch();
   imuPacket.yaw = filter.getYaw();
 }
 
 void setup() {
-  Serial.begin(500000);
   Serial2.begin(GPS_BAUDRATE);
   radioInit();
   imuInit();
@@ -250,7 +253,6 @@ void loop() {
   powerUpdate();
 
   if ((millis() - lastIMU) > (1000/IMU_FREQ)){
-    Serial.println(millis() - lastIMU);
     imuUpdate();
     lastIMU = millis();
   }
