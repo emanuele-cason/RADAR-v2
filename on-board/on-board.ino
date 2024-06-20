@@ -227,7 +227,6 @@ void setup() {
 
   lastTX = 0;
   lastIMU = 0;
-  lastGNSS = 0;
 
   xTaskCreate(
         radioTx,  // Funzione da eseguire
